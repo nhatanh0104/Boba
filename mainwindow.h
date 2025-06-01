@@ -3,8 +3,8 @@
 
 #include <QMainWindow>
 #include <QFileSystemModel>
-#include <QDir>
 #include <QStack>
+#include <QPoint>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -21,13 +21,12 @@ public:
     ~MainWindow();
 
 private slots:
-    void on_treeView_activated(const QModelIndex &index);
-
+    void on_treeView_clicked(const QModelIndex &index);
     void on_folderView_activated(const QModelIndex &index);
-
     void on_backButton_clicked();
-
     void on_upButton_clicked();
+    void on_new_folder();
+    void on_folderView_contextMenu_requested(const QPoint &pos);
 
 private:
     Ui::MainWindow *ui;
