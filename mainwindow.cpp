@@ -7,13 +7,21 @@
 #include <QMenu>
 #include <QShortcut>
 #include <QInputDialog>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , detailsWidget(nullptr)
+    , centralWidget(nullptr)
+    , mainLayout(nullptr)
+    , detailsVisible(false)
 {
     ui->setupUi(this);
     init();
+    setupDetailsWidget();
 }
 
 MainWindow::~MainWindow()
@@ -25,7 +33,13 @@ void MainWindow::init()
 {
     model.setRootPath(QDir::rootPath());
     model.setReadOnly(false);
-    ui->treeView->setModel(&model);
+
+    // Create and setup the directory filter proxy model
+    treeProxyModel = new DirectoryFilterProxyModel(this);
+    treeProxyModel->setSourceModel(&model);
+
+    // Set models
+    ui->treeView->setModel(treeProxyModel);
     ui->folderView->setModel(&model);
 
     // Configure folderView for editing
@@ -34,17 +48,27 @@ void MainWindow::init()
     ui->folderView->setSelectionBehavior(QAbstractItemView::SelectRows); // Select entire row
     ui->folderView->setFocusPolicy(Qt::StrongFocus);
 
+    // Enable drag and drop
+    ui->folderView->setDragEnabled(true);
+    ui->folderView->setAcceptDrops(true);
+    ui->folderView->setDropIndicatorShown(true);
+    ui->folderView->setDragDropMode(QAbstractItemView::DragDrop);
+    ui->folderView->setDefaultDropAction(Qt::MoveAction);
+
     // Enable context menu
     ui->folderView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Setup treeView, folderView and addressBar
     QString rootPath = "D:/KAIST/Academic/2025_Spring";
-    QModelIndex index = model.index(rootPath);
-    if (!index.isValid()) {
+    QModelIndex sourceIndex = model.index(rootPath);
+    if (!sourceIndex.isValid()) {
         qDebug() << "Invalid root index for" << rootPath;
     }
-    ui->treeView->setRootIndex(index);
-    ui->folderView->setRootIndex(index);
+
+    // Map source index to proxy index for treeView
+    QModelIndex proxyIndex = treeProxyModel->mapFromSource(sourceIndex);
+    ui->treeView->setRootIndex(proxyIndex);
+    ui->folderView->setRootIndex(sourceIndex);
     ui->addressBar->setText(rootPath);
 
     // Hide all column of treeView except for the first one
@@ -53,6 +77,9 @@ void MainWindow::init()
         ui->treeView->hideColumn(i);
     }
     ui->folderView->verticalHeader()->hide();
+    ui->folderView->setColumnWidth(0, 400);
+    for (int i = 1; i < 4; i++)
+        ui->folderView->setColumnWidth(i, 150);
 
     // Signal connection
     connect(ui->treeView, &QTreeView::clicked, this, &MainWindow::on_treeView_clicked);
@@ -62,30 +89,139 @@ void MainWindow::init()
     connect(ui->searchButton, &QPushButton::clicked, this, &MainWindow::on_new_folder);
     connect(ui->folderView, &QTableView::customContextMenuRequested, this, &MainWindow::on_folderView_contextMenu_requested);
 
+    // Shortcut for creating new folder
     QShortcut *newFolderShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this);
     connect(newFolderShortcut, &QShortcut::activated, this, &MainWindow::on_new_folder);
-    qDebug() << "Ctrl+Shift+N shortcut connected";
+
+    // Shortcut for rename
+    QShortcut *renameShortcut = new QShortcut(QKeySequence(Qt::Key_F2), ui->treeView);
+    connect(renameShortcut, &QShortcut::activated, this, &MainWindow::on_rename);
+}
+
+void MainWindow::setupDetailsWidget()
+{
+    // Create the details widget
+    detailsWidget = new FileDetailsWidget(this);
+
+    // Connect the close signal
+    connect(detailsWidget, &FileDetailsWidget::closeRequested,
+            this, &MainWindow::on_detailsWidget_closeRequested);
+
+    // Get the current central widget
+    QWidget *currentCentralWidget = ui->centralwidget;
+
+    // Create a new central widget with horizontal layout
+    centralWidget = new QWidget(this);
+    mainLayout = new QHBoxLayout(centralWidget);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    // Add the original central widget to the layout
+    mainLayout->addWidget(currentCentralWidget);
+
+    // Add the details widget (initially hidden)
+    mainLayout->addWidget(detailsWidget);
+    detailsWidget->hide();
+
+    // Set the new central widget
+    setCentralWidget(centralWidget);
+}
+
+void MainWindow::showFileDetails(const QModelIndex &index)
+{
+    if (!index.isValid()) {
+        return;
+    }
+
+    QString filePath = model.filePath(index);
+    QFileInfo fileInfo(filePath);
+
+    detailsWidget->setFileInfo(fileInfo);
+    detailsVisible = true;
+}
+
+void MainWindow::on_showDetails()
+{
+    // Get the currently selected item in folderView
+    QModelIndex currentIndex = ui->folderView->currentIndex();
+    if (currentIndex.isValid()) {
+        showFileDetails(currentIndex);
+    } else {
+        qDebug() << "No item selected for showing details";
+    }
+}
+
+void MainWindow::on_detailsWidget_closeRequested()
+{
+    detailsWidget->hide();
+    detailsVisible = false;
+}
+
+QModelIndex MainWindow::mapToSourceModel(const QModelIndex &proxyIndex)
+{
+    qDebug() << "mapToSourceModel is called";
+
+    // Check if proxyIndex is valid
+    if (!proxyIndex.isValid()) {
+        qDebug() << "[mapToSourceModel] Invalid proxy index provided";
+        return QModelIndex(); // Return invalid index
+    }
+
+    // Check if treeProxyModel is valid
+    if (!treeProxyModel) {
+        qDebug() << "[mapToSourceModel] treeProxyModel is null";
+        return proxyIndex; // Return original index if no proxy model
+    }
+
+    if (proxyIndex.model() == treeProxyModel)
+    {
+        qDebug() << "[mapToSourceModel] before mapping...";
+        QModelIndex sourceIndex = treeProxyModel->mapToSource(proxyIndex);
+        qDebug() << "[mapToSourceModel] mapping done! Valid:" << sourceIndex.isValid();
+        return sourceIndex;
+    }
+
+    qDebug() << "[mapToSourceModel] Index is not from proxy model, returning as-is";
+    return proxyIndex;
+}
+
+QModelIndex MainWindow::mapFromSourceModel(const QModelIndex &sourceIndex)
+{
+    return treeProxyModel->mapFromSource(sourceIndex);
 }
 
 void MainWindow::on_treeView_clicked(const QModelIndex &index)
 {
+    qDebug() << "treeView_clicked is called";
+    // Map proxy index to source index
+    QModelIndex sourceIndex = mapToSourceModel(index);
+    if (!sourceIndex.isValid())
+    {
+        qDebug() << "Invalid source index for model [treeView_clicked]";
+        return;
+    }
+
     // If index is the same as root index of the folderView -> do nothing
-    if (ui->folderView->rootIndex() == index)
+    if (ui->folderView->rootIndex() == sourceIndex)
     {
         return;
     }
 
     // Else display the directory specified by index
     history_paths.push(ui->addressBar->displayText());
-    qDebug() << "Pushed" << ui->addressBar->displayText() <<" to stack";
     ui->treeView->expand(index);
-    ui->folderView->setRootIndex(index);
-    ui->addressBar->setText(model.filePath(index));
-    history_paths.push(model.filePath(index));
+    ui->folderView->setRootIndex(sourceIndex);
+    ui->addressBar->setText(model.filePath(sourceIndex));
+    if (detailsVisible)
+        detailsWidget->setFileInfo(model.fileInfo(sourceIndex));
 }
 
 void MainWindow::on_folderView_activated(const QModelIndex &index)
 {
+    // Only process if it's a directory
+    if (!model.isDir(index))
+        return;
+
     // If index is the same as root index of the folderView -> do nothing
     if (ui->folderView->rootIndex() == index)
     {
@@ -94,17 +230,19 @@ void MainWindow::on_folderView_activated(const QModelIndex &index)
 
     // Else display the directory specified by index
     history_paths.push(ui->addressBar->displayText());
-    qDebug() << "Pushed" << ui->addressBar->displayText() << "to stack";
     ui->folderView->setRootIndex(index);
-    ui->treeView->setCurrentIndex(index);
-    ui->treeView->expand(index);
+
+    // Map source index to proxy index for tree view
+    QModelIndex proxyIndex = mapFromSourceModel(index);
+    ui->treeView->setCurrentIndex(proxyIndex);
+    ui->treeView->expand(proxyIndex);
     ui->addressBar->setText(model.filePath(index));
+    if (detailsVisible)
+        detailsWidget->setFileInfo(model.fileInfo(index));
 }
 
 void MainWindow::on_new_folder()
 {
-    qDebug() << "on_new_folder slot called";
-
     // Get the current directory from the address bar
     QString currentPath = ui->addressBar->text();
     QDir dir(currentPath);
@@ -143,7 +281,7 @@ void MainWindow::on_new_folder()
     qDebug() << "Directory created successfully:" << newFolderPath;
 
     // Ensure model updates before editing
-    QTimer::singleShot(100, this, [=]() {
+    QTimer::singleShot(50, this, [=]() {
         qDebug() << "QTimer triggered for" << newFolderPath;
 
         // Re-fetch the index to ensure model is updated
@@ -190,11 +328,62 @@ void MainWindow::on_new_folder()
     });
 }
 
+void MainWindow::on_rename()
+{
+    qDebug() << "on_raname_folder slot called";
+
+    QModelIndex currentIndex = ui->folderView->currentIndex();
+    if (!currentIndex.isValid())
+    {
+        qDebug() << "No valid folder selected for renaming";
+        return;
+    }
+
+    QModelIndex nameIndex = model.index(currentIndex.row(), 0, currentIndex.parent());
+    if (!nameIndex.isValid())
+    {
+        qDebug() << "Invalid name index for:" << model.filePath(currentIndex);
+        return;
+    }
+
+    Qt::ItemFlags flags = model.flags(nameIndex);
+    qDebug() << "Flags for name index:" << flags;
+    if (!flags & Qt::ItemIsEditable)
+    {
+        qDebug() << "Name index is not editable for: " << model.filePath(currentIndex);
+        return;
+    }
+
+    ui->folderView->clearSelection();
+    ui->folderView->setCurrentIndex(nameIndex);
+    ui->folderView->scrollTo(nameIndex);
+    ui->folderView->setFocus();
+    ui->folderView->edit(nameIndex);
+    qDebug() << "Attempted to start renaming for" << model.filePath(nameIndex);
+}
+
 void MainWindow::on_folderView_contextMenu_requested(const QPoint &pos)
 {
     qDebug() << "Context menu requested at" << pos;
 
     QMenu contextMenu(this);
+
+    // Check if right-click is on an item
+    QModelIndex index = ui->folderView->indexAt(pos);
+    if (index.isValid()) {
+        // Right-clicked on an item
+        QAction *detailsAction = contextMenu.addAction("Show Details");
+        connect(detailsAction, &QAction::triggered, [this, index]() {
+            showFileDetails(index);
+        });
+
+        contextMenu.addSeparator();
+
+        QAction *renameAction = contextMenu.addAction("Rename");
+        connect(renameAction, &QAction::triggered, this, &MainWindow::on_rename);
+    }
+
+    // Always show "Create New Folder" option
     QAction *newFolderAction = contextMenu.addAction("Create New Folder");
     connect(newFolderAction, &QAction::triggered, this, &MainWindow::on_new_folder);
 
@@ -206,7 +395,6 @@ void MainWindow::on_backButton_clicked()
     if (!history_paths.isEmpty())
     {
         QString new_path = history_paths.pop();
-        qDebug() << "Popped" << new_path << "from stack";
         change_dir(new_path);
     }
 }
@@ -218,9 +406,37 @@ void MainWindow::on_upButton_clicked()
     if (dir.cdUp())
     {
         history_paths.push(current_path);
-        qDebug() << "Pushed" << current_path << "to stack";
         change_dir(dir.absolutePath());
     }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls())
+    {
+        event->acceptProposedAction();
+    }
+    else
+    {
+        qDebug() << "Drag enter event ignored: No URLs in mime data";
+    }
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (event->mimeData()->hasUrls())
+    {
+        event->acceptProposedAction();
+    }
+    else
+    {
+        qDebug() << "Drag move event ignored";
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+
 }
 
 void MainWindow::change_dir(const QString &path)
@@ -228,10 +444,12 @@ void MainWindow::change_dir(const QString &path)
     QDir dir(path);
     if (dir.exists())
     {
-        QModelIndex index = model.index(path);
-        ui->folderView->setRootIndex(index);
-        ui->treeView->setCurrentIndex(index);
-        ui->treeView->expand(index);
+        QModelIndex sourceIndex = model.index(path);
+        QModelIndex proxyIndex = mapFromSourceModel(sourceIndex);
+
+        ui->folderView->setRootIndex(sourceIndex);
+        ui->treeView->setCurrentIndex(proxyIndex);
+        ui->treeView->expand(proxyIndex);
         ui->addressBar->setText(path);
     }
     else
