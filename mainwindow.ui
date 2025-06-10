@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1280</width>
-    <height>960</height>
+    <width>1330</width>
+    <height>854</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -32,12 +32,22 @@
        </widget>
       </item>
       <item>
-       <widget class="QLineEdit" name="addressBar"/>
+       <widget class="QLineEdit" name="addressBar">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>3</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+       </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="searchButton">
-        <property name="text">
-         <string>Search</string>
+       <widget class="QLineEdit" name="searchPrompt">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
        </widget>
       </item>
@@ -72,7 +82,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1280</width>
+     <width>1330</width>
      <height>22</height>
     </rect>
    </property>

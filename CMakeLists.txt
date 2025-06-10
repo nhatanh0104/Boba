@@ -25,10 +25,9 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(Boba
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
-        sqlfilesystemmodel.h sqlfilesystemmodel.cpp
         filedetailswidget.h filedetailswidget.cpp
         directoryfilterproxymodel.h directoryfilterproxymodel.cpp
-
+        searchthread.h searchthread.cpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET Boba APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
