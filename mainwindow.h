@@ -52,11 +52,14 @@ private slots:
     void on_detailsWidget_closeRequested();
 
     // Search-related slots
-    void on_searchPrompt_textChanged(const QString &text);
+    // void on_searchPrompt_textChanged(const QString &text);
     void onSearchResultFound(const SearchResult &result);
     void onSearchCompleted(int totalResults);
     void onSearchCancelled();
     void onSearchProgress(int fileProcessed, int directoriesProcessed);
+    void clearSearch();
+    void on_searchButton_clicked();
+    void on_searchPrompt_returnPressed();
 
 private:
     void init();
@@ -86,5 +89,6 @@ private:
     QStandardItemModel *searchResultsModel;
     bool isSearching;
     QModelIndex savedFolderViewRoot;
+    SearchOptions currentSearchOptions;
 };
 #endif // MAINWINDOW_H

@@ -352,90 +352,193 @@ void MainWindow::on_detailsWidget_closeRequested()
 
 
 
-void MainWindow::on_searchPrompt_textChanged(const QString &text)
-{
-    // Cancel any ongoing search
-    if (searchThread && searchThread->isSearching())
-    {
-        searchThread->stopSearch();
-    }
-
-    // If text is empty, restore origianl view
-    if (text.isEmpty())
-    {
-        if (isSearching)
-        {
-            ui->folderView->setModel(&model);
-            ui->folderView->setRootIndex(savedFolderViewRoot);
-            isSearching = false;
-        }
-        return;
-    }
-
-    // Start new search after a small delay (to avoid searching while typing)
-    QTimer::singleShot(300, this, [this, text]() {
-        if (ui->searchPrompt->text() == text && !text.isEmpty()) {
-            startSearch(text);
-        }
-    });
-}
 
 
 void MainWindow::onSearchResultFound(const SearchResult &result)
 {
     QList<QStandardItem*> rowItems;
 
-    // New column with icon
-    QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
-    nameItem->setData(result.fullPath, Qt::UserRole);
-    nameItem->setEditable(false);
-    rowItems << nameItem;
+    if (currentSearchOptions.mode == SearchMode::FileName) {
+        // Filename search result
+        QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
+        nameItem->setData(result.fullPath, Qt::UserRole);
+        nameItem->setEditable(false);
+        rowItems << nameItem;
 
-    // Size column
-    QString sizeText = result.isDirectory ? "" : formatFileSize(result.fileSize);
-    QStandardItem *sizeItem = new QStandardItem(sizeText);
-    sizeItem->setEditable(false);
-    rowItems << sizeItem;
+        // Location
+        QFileInfo fileInfo(result.fullPath);
+        QString location = fileInfo.absolutePath();
+        QString searchRoot = ui->addressBar->text();
+        if (location.startsWith(searchRoot)) {
+            location = location.mid(searchRoot.length());
+            if (location.startsWith('/') || location.startsWith('\\'))
+                location = location.mid(1);
+            if (location.isEmpty())
+                location = ".";
+        }
+        rowItems << new QStandardItem(location);
 
-    // Type column
-    QStandardItem *typeItem = new QStandardItem(result.fileType);
-    typeItem->setEditable(false);
-    rowItems << typeItem;
+        // Size
+        QString sizeText = result.isDirectory ? "" : formatFileSize(result.fileSize);
+        rowItems << new QStandardItem(sizeText);
 
-    // Date modified column
-    QStandardItem *dateItem = new QStandardItem(result.lastModified);
-    dateItem->setEditable(false);
-    rowItems << dateItem;
+        // Type
+        rowItems << new QStandardItem(result.fileType);
 
-    // Add the row to the model
+        // Modified
+        rowItems << new QStandardItem(result.lastModified);
+
+    } else {
+        // Content search result
+        QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
+        nameItem->setData(result.fullPath, Qt::UserRole);
+        nameItem->setEditable(false);
+        rowItems << nameItem;
+
+        // Line number
+        rowItems << new QStandardItem(QString::number(result.lineNumber));
+
+        // Matched line
+        QStandardItem *matchItem = new QStandardItem(result.matchedLine);
+        matchItem->setToolTip(result.matchedLine); // Full text in tooltip
+        rowItems << matchItem;
+
+        // Size
+        rowItems << new QStandardItem(formatFileSize(result.fileSize));
+
+        // Modified
+        rowItems << new QStandardItem(result.lastModified);
+    }
+
+    // Make all items non-editable
+    for (QStandardItem *item : rowItems) {
+        item->setEditable(false);
+    }
+
     searchResultsModel->appendRow(rowItems);
 }
 
 void MainWindow::onSearchCompleted(int totalResults)
 {
-    qDebug() << "Search completed with" << totalResults << "results";
-
-    // Update search prompt style to indicate completion
-
-    QString message = QString("Search completed: %1 result%2 found")
-                          .arg(totalResults)
-                          .arg(totalResults == 1 ? "" : "s");
-    ui->statusbar->showMessage(message, 5000);
+    QString message = QString("Found %1 result%2").arg(totalResults).arg(totalResults == 1 ? "" : "s");
+    ui->statusbar->showMessage(message, 10000);
+    ui->searchButton->setText("Search");
 }
 
 void MainWindow::onSearchCancelled()
 {
-    qDebug() << "Search cancelled";
+    QString message = QString("Search cancelled");
+    ui->statusbar->showMessage(message, 5000);
+    ui->searchButton->setText("Search");
 }
 
 void MainWindow::onSearchProgress(int filesProcessed, int directoriesProcessed)
 {
-    // Update progress (if you have a status bar or progress indicator)
-    qDebug() << "Search progress - Files:" << filesProcessed << "Directories:" << directoriesProcessed;
+    QString message = QString("Searching... %1 files, %2 folders").arg(filesProcessed).arg(directoriesProcessed);
+    ui->statusbar->showMessage(message, 0);
 }
 
+void MainWindow::on_searchButton_clicked()
+{
+    // Check if we're currently searching - if so, stop the search
+    if (isSearching && searchThread && searchThread->isSearching()) {
+        clearSearch();
+        return;
+    }
 
+    // Otherwise, start a new search if there's text
+    QString searchText = ui->searchPrompt->text().trimmed();
+    if (searchText.isEmpty()) {
+        clearSearch();
+        return;
+    }
 
+    startSearch(searchText);
+}
+
+void MainWindow::on_searchPrompt_returnPressed()
+{
+    on_searchButton_clicked();
+}
+
+void MainWindow::startSearch(const QString &searchText)
+{
+    // Cancel any ongoing search
+    if (searchThread && searchThread->isSearching()) {
+        searchThread->stopSearch();
+        searchThread->wait();
+    }
+
+    if (!isSearching) {
+        // First time searching - setup UI
+        savedFolderViewRoot = ui->folderView->rootIndex();
+
+        // Setup model columns based on search mode
+        searchResultsModel->clear();
+        if (currentSearchOptions.mode == SearchMode::FileName) {
+            searchResultsModel->setHorizontalHeaderLabels(
+                QStringList() << "Name" << "Location" << "Size" << "Type" << "Modified");
+        } else {
+            searchResultsModel->setHorizontalHeaderLabels(
+                QStringList() << "Name" << "Line" << "Match" << "Size" << "Modified");
+        }
+
+        // Switch to search results model
+        ui->folderView->setModel(searchResultsModel);
+        isSearching = true;
+
+        // Update UI state
+        ui->searchButton->setText("Stop");
+        ui->statusbar->showMessage("Starting search...", 0);
+
+        // Adjust column widths
+        if (currentSearchOptions.mode == SearchMode::FileName) {
+            ui->folderView->setColumnWidth(0, 300);
+            ui->folderView->setColumnWidth(1, 350);
+            ui->folderView->setColumnWidth(2, 80);
+            ui->folderView->setColumnWidth(3, 80);
+            ui->folderView->setColumnWidth(4, 120);
+        } else {
+            ui->folderView->setColumnWidth(0, 250);
+            ui->folderView->setColumnWidth(1, 60);
+            ui->folderView->setColumnWidth(2, 400);
+            ui->folderView->setColumnWidth(3, 80);
+            ui->folderView->setColumnWidth(4, 120);
+        }
+    } else {
+        // Already searching - just clear results
+        searchResultsModel->removeRows(0, searchResultsModel->rowCount());
+        ui->statusbar->showMessage("Restarting search...", 0);
+    }
+
+    // Start the search
+    QString searchDir = ui->addressBar->text();
+    searchThread->startSearch(searchText, searchDir, currentSearchOptions);
+}
+
+void MainWindow::clearSearch()
+{
+    if (searchThread && searchThread->isSearching())
+    {
+        searchThread->stopSearch();
+    }
+
+    if (isSearching) {
+        // Restore original view
+        ui->folderView->setModel(&model);
+        ui->folderView->setRootIndex(savedFolderViewRoot);
+        isSearching = false;
+
+        // Reset UI state
+        ui->searchPrompt->clear();
+        ui->searchButton->setText("Search");
+
+        // Restore column widths
+        ui->folderView->setColumnWidth(0, 400);
+        for (int i = 1; i < 4; i++)
+            ui->folderView->setColumnWidth(i, 150);
+    }
+}
 
 
 
@@ -469,12 +572,12 @@ void MainWindow::init()
     ui->folderView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Setup treeView, folderView and addressBar
-    QString rootPath = "D:/KAIST/Academic/2025_Spring";
+    QString rootPath = "/";
     QModelIndex sourceIndex = model.index(rootPath);
     if (!sourceIndex.isValid()) {
         qDebug() << "Invalid root index for" << rootPath;
     }
-    ui->searchPrompt->setPlaceholderText("Search 2025_Spring");
+    ui->searchPrompt->setPlaceholderText("Search current directory...");
 
     // Map source index to proxy index for treeView
     QModelIndex proxyIndex = treeProxyModel->mapFromSource(sourceIndex);
@@ -499,23 +602,24 @@ void MainWindow::init()
     connect(ui->upButton, &QPushButton::clicked, this, &MainWindow::on_upButton_clicked);
     connect(ui->folderView, &QTableView::customContextMenuRequested, this, &MainWindow::on_folderView_contextMenu_requested);
 
-    connect(ui->folderView, &QTableView::doubleClicked, this, [this](const QModelIndex &index) {
-        if (isSearching && index.isValid()) {
-            // Get the full path from the search result
-            QString fullPath = index.sibling(index.row(), 0).data(Qt::UserRole).toString();
-            if (!fullPath.isEmpty()) {
-                QFileInfo fileInfo(fullPath);
-                if (fileInfo.isDir()) {
-                    // Navigate to the directory
-                    ui->searchPrompt->clear();  // This will trigger restoration of normal view
-                    change_dir(fullPath);
-                } else {
-                    // Open the file with default application
-                    QDesktopServices::openUrl(QUrl::fromLocalFile(fullPath));
+    connect(ui->folderView, &QTableView::doubleClicked,
+            this, [this](const QModelIndex &index) {
+                if (isSearching && index.isValid()) {
+                    // Get the full path from the first column
+                    QString fullPath = index.sibling(index.row(), 0).data(Qt::UserRole).toString();
+                    if (!fullPath.isEmpty()) {
+                        QFileInfo fileInfo(fullPath);
+                        if (fileInfo.isDir()) {
+                            // Navigate to the directory
+                            clearSearch();
+                            change_dir(fullPath);
+                        } else {
+                            // Open the file with default application
+                            QDesktopServices::openUrl(QUrl::fromLocalFile(fullPath));
+                        }
+                    }
                 }
-            }
-        }
-    });
+            });
 
     // Shortcut for creating new folder
     QShortcut *newFolderShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this);
@@ -571,7 +675,7 @@ void MainWindow::setupSearch()
     connect(searchThread, &SearchThread::searchProgress, this, &MainWindow::onSearchProgress);
 
     // Connect text change signal
-    connect(ui->searchPrompt, &QLineEdit::textChanged, this, &MainWindow::on_searchPrompt_textChanged);
+    // connect(ui->searchPrompt, &QLineEdit::textChanged, this, &MainWindow::on_searchPrompt_textChanged);
 }
 
 
@@ -620,32 +724,6 @@ QModelIndex MainWindow::mapToSourceModel(const QModelIndex &proxyIndex)
 QModelIndex MainWindow::mapFromSourceModel(const QModelIndex &sourceIndex)
 {
     return treeProxyModel->mapFromSource(sourceIndex);
-}
-
-void MainWindow::startSearch(const QString &searchText)
-{
-    if (!isSearching) {
-        // Save current view state
-        savedFolderViewRoot = ui->folderView->rootIndex();
-
-        // Clear previous results
-        searchResultsModel->clear();
-        searchResultsModel->setHorizontalHeaderLabels(QStringList() << "Name" << "Size" << "Type" << "Date Modified");
-
-        // Switch to search results model
-        ui->folderView->setModel(searchResultsModel);
-        isSearching = true;
-    } else {
-        // Clear existing results for new search
-        searchResultsModel->removeRows(0, searchResultsModel->rowCount());
-    }
-
-    // Start the search
-    QString searchDir = ui->addressBar->text();
-    searchThread->startSearch(searchText, searchDir);
-
-    // Update status (you might want to add a status bar)
-    qDebug() << "Starting search for:" << searchText << "in" << searchDir;
 }
 
 QString MainWindow::formatFileSize(qint64 size)

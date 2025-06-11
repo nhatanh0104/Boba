@@ -3,6 +3,7 @@
 #include <QFileIconProvider>
 #include <QApplication>
 #include <QDateTime>
+#include <QTextStream>
 
 SearchThread::SearchThread(QObject *parent)
     : QThread(parent)
@@ -22,7 +23,7 @@ SearchThread::~SearchThread()
     }
 }
 
-void SearchThread::startSearch(const QString &searchText, const QString &rootPath)
+void SearchThread::startSearch(const QString &searchText, const QString &rootPath, const SearchOptions &options)
 {
     QMutexLocker locker(&m_mutex);
 
@@ -34,6 +35,7 @@ void SearchThread::startSearch(const QString &searchText, const QString &rootPat
 
     m_searchText = searchText;
     m_rootPath = rootPath;
+    m_options = options;
     m_shouldStop = 0;
     m_filesProcessed = 0;
     m_directoriesProcessed = 0;
@@ -55,17 +57,16 @@ bool SearchThread::isSearching() const
 void SearchThread::run()
 {
     qDebug() << "Search thread started for:" << m_searchText << "in" << m_rootPath;
+    qDebug() << "Search mode:" << (m_options.mode == SearchMode::FileName ? "FileName" : "FileContent");
 
-    try
-    {
+    try {
         searchRecursively(m_rootPath);
 
-        if(!m_shouldStop.loadAcquire())
+        if (!m_shouldStop.loadAcquire())
         {
             emit searchCompleted(m_resultsFound.loadAcquire());
             qDebug() << "Search completed. Total results:" << m_resultsFound.loadAcquire();
-        }
-        else
+        } else
         {
             emit searchCancelled();
             qDebug() << "Search was cancelled";
@@ -73,7 +74,7 @@ void SearchThread::run()
     }
     catch (...)
     {
-        qDebug() << "Exception occured during search";
+        qDebug() << "Exception occurred during search";
         emit searchCancelled();
     }
 }
@@ -108,23 +109,31 @@ void SearchThread::searchRecursively(const QString &dirPath)
             return;
         }
 
-        QString fileName = fileInfo.fileName();
         m_filesProcessed.fetchAndAddAcquire(1);
 
-        // Check if filename contains search text (case-insensitive)
-        if (fileName.contains(m_searchText, Qt::CaseInsensitive)) {
-            SearchResult result;
-            result.fileName = fileName;
-            result.fullPath = fileInfo.absoluteFilePath();
-            result.fileSize = fileInfo.isFile() ? fileInfo.size() : 0;
-            result.fileType = getFileType(fileInfo);
-            result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
-            result.isDirectory = fileInfo.isDir();
-            result.icon = iconProvider.icon(fileInfo);
+        if (m_options.mode == SearchMode::FileName) {
+            // Search only in filename
+            QString fileName = fileInfo.fileName();
 
-            qDebug() << result.fullPath;
-            emit resultFound(result);
-            m_resultsFound.fetchAndAddAcquire(1);
+            if (fileName.contains(m_searchText, Qt::CaseInsensitive)) {
+                SearchResult result;
+                result.fileName = fileName;
+                result.fullPath = fileInfo.absoluteFilePath();
+                result.fileSize = fileInfo.isFile() ? fileInfo.size() : 0;
+                result.fileType = getFileType(fileInfo);
+                result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
+                result.isDirectory = fileInfo.isDir();
+                result.icon = iconProvider.icon(fileInfo);
+                result.lineNumber = 0;
+
+                emit resultFound(result);
+                m_resultsFound.fetchAndAddAcquire(1);
+            }
+        } else if (m_options.mode == SearchMode::FileContent) {
+            // Search only in file content
+            if (fileInfo.isFile() && searchInFile(fileInfo)) {
+                // Results are emitted from searchInFile
+            }
         }
 
         // Recursively search subdirectories
@@ -132,11 +141,86 @@ void SearchThread::searchRecursively(const QString &dirPath)
             searchRecursively(fileInfo.absoluteFilePath());
         }
 
-        // Yield control periodically to prevent thread from monopolizing CPU
+        // Yield control periodically
         if (m_filesProcessed.loadAcquire() % 100 == 0) {
-            msleep(1); // Brief pause every 100 files
+            msleep(1);
         }
     }
+}
+
+bool SearchThread::searchInFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.size() > m_options.maxFileSizeBytes)
+    {
+        return false;
+    }
+
+    if (!isTextFile(fileInfo))
+    {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        return false;
+    }
+
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+
+    int lineNumber = 0;
+    bool foundAny = false;
+
+    while (!stream.atEnd() && !m_shouldStop.loadAcquire())
+    {
+        QString line = stream.readLine();
+        lineNumber++;
+
+        if (line.contains(m_searchText, Qt::CaseInsensitive)) {
+            SearchResult result;
+            result.fileName = fileInfo.fileName();
+            result.fullPath = fileInfo.absoluteFilePath();
+            result.fileSize = fileInfo.size();
+            result.fileType = getFileType(fileInfo);
+            result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
+            result.isDirectory = false;
+            result.lineNumber = lineNumber;
+            result.matchedLine = line.trimmed();
+
+            // Truncate long lines
+            if (result.matchedLine.length() > 200) {
+                int pos = result.matchedLine.indexOf(m_searchText, 0, Qt::CaseInsensitive);
+                if (pos > 100) {
+                    result.matchedLine = "..." + result.matchedLine.mid(pos - 50, 150) + "...";
+                } else {
+                    result.matchedLine = result.matchedLine.left(200) + "...";
+                }
+            }
+
+            QFileIconProvider iconProvider;
+            result.icon = iconProvider.icon(fileInfo);
+
+            emit resultFound(result);
+            m_resultsFound.fetchAndAddAcquire(1);
+            foundAny = true;
+
+            // Optional: limit results per file to avoid too many from one file
+            static const int MAX_RESULTS_PER_FILE = 5;
+            if (m_resultsFound.loadAcquire() % MAX_RESULTS_PER_FILE == 0) {
+                break;
+            }
+        }
+    }
+
+    file.close();
+    return foundAny;
+}
+
+bool SearchThread::isTextFile(const QFileInfo &fileInfo)
+{
+    QString suffix = fileInfo.suffix().toLower();
+    return m_options.textFileExtensions.contains(suffix) || suffix.isEmpty();
 }
 
 QString SearchThread::formatFileSize(qint64 size)
