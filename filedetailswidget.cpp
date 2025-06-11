@@ -1,123 +1,32 @@
 #include "filedetailswidget.h"
+#include "./ui_filedetailswidget.h"
 #include <QFileIconProvider>
 #include <QDateTime>
 #include <QDir>
 #include <QApplication>
 #include <QStyle>
+#include <QPushButton>
 
 FileDetailsWidget::FileDetailsWidget(QWidget *parent)
     : QWidget{parent}
+    , ui(new Ui::FileDetailsWidget)
 {
-    setupUi();
-    setFixedWidth(300);
-    setMinimumHeight(400);
-}
+    ui->setupUi(this);
 
-void FileDetailsWidget::setupUi()
-{
-    mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(10);
-    mainLayout->setContentsMargins(10, 10, 10, 10);
-
-    headerLayout = new QHBoxLayout();
-    titleLabel = new QLabel("Details");
-    titleLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
-
-    closeButton = new QPushButton("×");
-    closeButton->setFixedSize(24, 24);
-    closeButton->setStyleSheet(
-        "QPushButton {"
-        "   border: none;"
-        "   background-color: #f0f0f0;"
-        "   border-radius: 12px;"
-        "   font-size: 16px;"
-        "   font-weight: bold;"
-        "}"
-        "QPushButton:hover {"
-        "   background-color: #e0e0e0;"
-        "}"
-        "QPushButton:pressed {"
-        "   background-color: #d0d0d0;"
-        "}"
-        );
-
-    headerLayout->addWidget(titleLabel);
-    headerLayout->addStretch();
-    headerLayout->addWidget(closeButton);
-
-    mainLayout->addLayout(headerLayout);
-
-    // Separator line
-    separator = new QFrame();
-    separator->setFrameShape(QFrame::HLine);
-    separator->setFrameShadow(QFrame::Sunken);
-    mainLayout->addWidget(separator);
-
-    // Scrollable content area
-    scrollArea = new QScrollArea();
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-
-    contentWidget = new QWidget();
-    contentLayout = new QVBoxLayout(contentWidget);
-    contentLayout->setSpacing(8);
-    contentLayout->setContentsMargins(5, 5, 5, 5);
-
-    // File icon
-    iconLabel = new QLabel();
-    iconLabel->setAlignment(Qt::AlignCenter);
-    iconLabel->setFixedHeight(64);
-    contentLayout->addWidget(iconLabel);
-
-    // File details
-    nameLabel = new QLabel();
-    nameLabel->setWordWrap(true);
-    nameLabel->setStyleSheet("font-weight: bold;");
-    contentLayout->addWidget(nameLabel);
-
-    pathLabel = new QLabel();
-    pathLabel->setWordWrap(true);
-    pathLabel->setStyleSheet("color: #666; font-size: 11px;");
-    contentLayout->addWidget(pathLabel);
-
-    // Add separator
-    QFrame *detailsSeparator = new QFrame();
-    detailsSeparator->setFrameShape(QFrame::HLine);
-    detailsSeparator->setFrameShadow(QFrame::Sunken);
-    contentLayout->addWidget(detailsSeparator);
-
-    sizeLabel = new QLabel();
-    typeLabel = new QLabel();
-    createdLabel = new QLabel();
-    modifiedLabel = new QLabel();
-    accessedLabel = new QLabel();
-    permissionsLabel = new QLabel();
-
-    contentLayout->addWidget(sizeLabel);
-    contentLayout->addWidget(typeLabel);
-    contentLayout->addWidget(createdLabel);
-    contentLayout->addWidget(modifiedLabel);
-    contentLayout->addWidget(accessedLabel);
-    contentLayout->addWidget(permissionsLabel);
-
-    contentLayout->addStretch();
-
-    scrollArea->setWidget(contentWidget);
-    mainLayout->addWidget(scrollArea);
-
-    // Connect close button
-    connect(closeButton, &QPushButton::clicked, this, &FileDetailsWidget::onCloseButtonClicked);
-
-    // Initially hide the widget
+    connect(ui->closeButton, &QPushButton::clicked, this, &FileDetailsWidget::onCloseButtonClicked);
     hide();
 }
+
+FileDetailsWidget::~FileDetailsWidget()
+{
+    delete ui;
+}
+
 
 void FileDetailsWidget::setFileInfo(const QFileInfo &fileInfo)
 {
     currentFileInfo = fileInfo;
     updateDetails();
-    show();
 }
 
 void FileDetailsWidget::updateDetails()
@@ -132,30 +41,31 @@ void FileDetailsWidget::updateDetails()
     QFileIconProvider iconProvider;
     QIcon icon = iconProvider.icon(currentFileInfo);
     QPixmap pixmap = icon.pixmap(48, 48);
-    iconLabel->setPixmap(pixmap);
+    ui->iconLabel->setPixmap(pixmap);
 
     // File name
-    nameLabel->setText(currentFileInfo.fileName());
+    ui->nameLabel->setText(currentFileInfo.fileName());
 
     // File path
-    pathLabel->setText(currentFileInfo.absolutePath());
+    ui->pathLabel->setText(currentFileInfo.absolutePath());
 
     // File size
     if (currentFileInfo.isFile()) {
-        sizeLabel->setText(QString("Size: %1").arg(formatFileSize(currentFileInfo.size())));
+        ui->sizeLabel->setText(QString("Size: %1").arg(formatFileSize(currentFileInfo.size())));
     } else {
-        sizeLabel->setText("Size: -");
+        ui->sizeLabel->setText("Size: -");
     }
 
     // File type
-    typeLabel->setText(QString("Type: %1").arg(getFileTypeDescription(currentFileInfo)));
+    QString typeText = QString("Type: %1").arg(getFileTypeDescription(currentFileInfo));
+    ui->typeLabel->setText(typeText);
 
     // Timestamps
-    createdLabel->setText(QString("Created: %1").arg(
+    ui->createdLabel->setText(QString("Created: %1").arg(
         currentFileInfo.birthTime().toString("yyyy-MM-dd hh:mm:ss")));
-    modifiedLabel->setText(QString("Modified: %1").arg(
+    ui->modifiedLabel->setText(QString("Modified: %1").arg(
         currentFileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss")));
-    accessedLabel->setText(QString("Accessed: %1").arg(
+    ui->accessedLabel->setText(QString("Accessed: %1").arg(
         currentFileInfo.lastRead().toString("yyyy-MM-dd hh:mm:ss")));
 
     // Permissions
@@ -177,20 +87,20 @@ void FileDetailsWidget::updateDetails()
     permissions += (perms & QFile::WriteOther) ? "w" : "-";
     permissions += (perms & QFile::ExeOther) ? "x" : "-";
 
-    permissionsLabel->setText(QString("Permissions: %1").arg(permissions));
+    ui->permissionsLabel->setText(QString("Permissions: %1").arg(permissions));
 }
 
 void FileDetailsWidget::clearDetails()
 {
-    iconLabel->clear();
-    nameLabel->clear();
-    pathLabel->clear();
-    sizeLabel->clear();
-    typeLabel->clear();
-    createdLabel->clear();
-    modifiedLabel->clear();
-    accessedLabel->clear();
-    permissionsLabel->clear();
+    ui->iconLabel->clear();
+    ui->nameLabel->clear();
+    ui->pathLabel->clear();
+    ui->sizeLabel->clear();
+    ui->typeLabel->clear();
+    ui->createdLabel->clear();
+    ui->modifiedLabel->clear();
+    ui->accessedLabel->clear();
+    ui->permissionsLabel->clear();
     hide();
 }
 

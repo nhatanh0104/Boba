@@ -28,7 +28,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         filedetailswidget.h filedetailswidget.cpp
         directoryfilterproxymodel.h directoryfilterproxymodel.cpp
-        searchthread.h searchthread.cpp
+        filedetailswidget.ui
+        searchmanager.h searchmanager.cpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET Boba APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR

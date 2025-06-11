@@ -11,15 +11,15 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QDesktopServices>
+#include <QSplitter>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , detailsWidget(nullptr)
-    , centralWidget(nullptr)
-    , mainLayout(nullptr)
     , detailsVisible(false)
-    , searchThread(nullptr)
+    , searchManager(nullptr)
     , searchProxyModel(nullptr)
     , searchResultsModel(nullptr)
     , isSearching(false)
@@ -32,11 +32,10 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    if (searchThread)
+    if (searchManager)
     {
-        searchThread->stopSearch();
-        searchThread->wait();
-        delete searchThread;
+        searchManager->stopSearch();
+        delete searchManager;
     }
     delete searchResultsModel;
     delete searchProxyModel;
@@ -50,7 +49,11 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_treeView_clicked(const QModelIndex &index)
 {
-    qDebug() << "treeView_clicked is called";
+    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
+    // Add this one as a workaround.
+    if (isRecentlyClicked())
+        return;
+
     // Map proxy index to source index
     QModelIndex sourceIndex = mapToSourceModel(index);
     if (!sourceIndex.isValid())
@@ -66,7 +69,7 @@ void MainWindow::on_treeView_clicked(const QModelIndex &index)
     }
 
     // Else display the directory specified by index
-    history_paths.push(ui->addressBar->displayText());
+    history_paths.push(ui->addressBar->text());
     ui->treeView->expand(index);
     ui->folderView->setRootIndex(sourceIndex);
     ui->addressBar->setText(model.filePath(sourceIndex));
@@ -74,29 +77,74 @@ void MainWindow::on_treeView_clicked(const QModelIndex &index)
         detailsWidget->setFileInfo(model.fileInfo(sourceIndex));
 }
 
-void MainWindow::on_folderView_activated(const QModelIndex &index)
+void MainWindow::on_folderView_doubleClicked(const QModelIndex &index)
 {
-    // Only process if it's a directory
-    if (!model.isDir(index))
+    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
+    // Add this one as a workaround.
+    if (isRecentlyClicked())
         return;
 
-    // If index is the same as root index of the folderView -> do nothing
-    if (ui->folderView->rootIndex() == index)
-    {
+    if (!index.isValid()) {
         return;
     }
 
-    // Else display the directory specified by index
-    history_paths.push(ui->addressBar->displayText());
-    ui->folderView->setRootIndex(index);
+    if (isSearching) {
+        // Handle search results
+        QModelIndex nameIndex = index.sibling(index.row(), 0);
+        QString fullPath = nameIndex.data(Qt::UserRole).toString();
 
-    // Map source index to proxy index for tree view
-    QModelIndex proxyIndex = mapFromSourceModel(index);
-    ui->treeView->setCurrentIndex(proxyIndex);
-    ui->treeView->expand(proxyIndex);
-    ui->addressBar->setText(model.filePath(index));
-    if (detailsVisible)
-        detailsWidget->setFileInfo(model.fileInfo(index));
+        qDebug() << "Folder view interaction on search result:" << fullPath;
+
+        if (!fullPath.isEmpty()) {
+            QFileInfo fileInfo(fullPath);
+            if (fileInfo.exists()) {
+                if (fileInfo.isDir()) {
+                    // Navigate to the directory
+                    qDebug() << "Navigating to directory:" << fullPath;
+                    clearSearch();
+                    history_paths.push(ui->addressBar->text());
+                    change_dir(fullPath);
+                } else {
+                    // Show message for files
+                    QMessageBox msgBox;
+                    QString message = "Opened " + fullPath;
+                    msgBox.setText(message);
+                    msgBox.exec();
+                }
+            } else {
+                qDebug() << "File/directory no longer exists:" << fullPath;
+                QMessageBox::warning(this, "Error", "File or directory no longer exists:\n" + fullPath);
+            }
+        } else {
+            qDebug() << "No path data found for search result";
+        }
+    } else {
+        // Handle normal file system interaction
+        if (model.isDir(index)) {
+            // If index is the same as root index of the folderView -> do nothing
+            if (ui->folderView->rootIndex() == index) {
+                return;
+            }
+
+            // Navigate to directory
+            history_paths.push(ui->addressBar->text());
+            ui->folderView->setRootIndex(index);
+
+            // Map source index to proxy index for tree view
+            QModelIndex proxyIndex = mapFromSourceModel(index);
+            ui->treeView->setCurrentIndex(proxyIndex);
+            ui->treeView->expand(proxyIndex);
+            ui->addressBar->setText(model.filePath(index));
+            if (detailsVisible)
+                detailsWidget->setFileInfo(model.fileInfo(index));
+        } else {
+            QString filePath = model.filePath(index);
+            QMessageBox msgBox;
+            QString message = "Opened " + filePath;
+            msgBox.setText(message);
+            msgBox.exec();
+        }
+    }
 }
 
 
@@ -123,12 +171,19 @@ void MainWindow::on_folderView_contextMenu_requested(const QPoint &pos)
 
         QAction *renameAction = contextMenu.addAction("Rename");
         connect(renameAction, &QAction::triggered, this, &MainWindow::on_rename);
+
+        // Only allow rename if not in search mode
+        if (!isSearching) {
+            QAction *renameAction = contextMenu.addAction("Rename");
+            connect(renameAction, &QAction::triggered, this, &MainWindow::on_rename);
+        }
     }
 
-    // Always show "Create New Folder" option
-    QAction *newFolderAction = contextMenu.addAction("Create New Folder");
-    connect(newFolderAction, &QAction::triggered, this, &MainWindow::on_new_folder);
-
+    // Only show "Create New Folder" option if not in search mode
+    if (!isSearching) {
+        QAction *newFolderAction = contextMenu.addAction("Create New Folder");
+        connect(newFolderAction, &QAction::triggered, this, &MainWindow::on_new_folder);
+    }
     contextMenu.exec(ui->folderView->viewport()->mapToGlobal(pos));
 }
 
@@ -190,9 +245,7 @@ void MainWindow::on_new_folder()
         }
         qDebug() << "Name index valid for" << newFolderPath;
 
-        // Verify editability
         Qt::ItemFlags flags = model.flags(nameIndex);
-        qDebug() << "Flags for name index:" << flags;
 
         // Select and highlight the new folder
         ui->folderView->clearSelection();
@@ -202,19 +255,8 @@ void MainWindow::on_new_folder()
         qDebug() << "FolderView has focus:" << ui->folderView->hasFocus();
 
         if (flags & Qt::ItemIsEditable) {
-            // Attempt to open the rename editor
             ui->folderView->edit(nameIndex);
             qDebug() << "Attempted to start editing for" << newFolderPath;
-        } else {
-            qDebug() << "Name index is not editable for" << newFolderPath;
-            // Fallback to QInputDialog
-            QString newName = QInputDialog::getText(this, "Rename Folder", "Enter folder name:", QLineEdit::Normal, newFolderName);
-            if (!newName.isEmpty() && newName != newFolderName) {
-                bool renamed = model.setData(nameIndex, newName, Qt::EditRole);
-                qDebug() << "Rename via QInputDialog" << (renamed ? "succeeded" : "failed") << "to" << newName;
-            } else {
-                qDebug() << "Rename via QInputDialog cancelled or unchanged";
-            }
         }
     });
 }
@@ -260,6 +302,14 @@ void MainWindow::on_rename()
 
 void MainWindow::on_backButton_clicked()
 {
+    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
+    // Add this one as a workaround.
+    if (isRecentlyClicked())
+        return;
+
+    // Clear search first
+    clearSearch();
+
     if (!history_paths.isEmpty())
     {
         QString new_path = history_paths.pop();
@@ -269,7 +319,15 @@ void MainWindow::on_backButton_clicked()
 
 void MainWindow::on_upButton_clicked()
 {
-    QString current_path = ui->addressBar->displayText();
+    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
+    // Add this one as a workaround.
+    if (isRecentlyClicked())
+        return;
+
+    // Clear search first
+    clearSearch();
+
+    QString current_path = ui->addressBar->text();
     QDir dir(current_path);
     if (dir.cdUp())
     {
@@ -278,34 +336,6 @@ void MainWindow::on_upButton_clicked()
     }
 }
 
-void MainWindow::dragEnterEvent(QDragEnterEvent *event)
-{
-    if (event->mimeData()->hasUrls())
-    {
-        event->acceptProposedAction();
-    }
-    else
-    {
-        qDebug() << "Drag enter event ignored: No URLs in mime data";
-    }
-}
-
-void MainWindow::dragMoveEvent(QDragMoveEvent *event)
-{
-    if (event->mimeData()->hasUrls())
-    {
-        event->acceptProposedAction();
-    }
-    else
-    {
-        qDebug() << "Drag move event ignored";
-    }
-}
-
-void MainWindow::dropEvent(QDropEvent *event)
-{
-
-}
 
 void MainWindow::change_dir(const QString &path)
 {
@@ -344,8 +374,10 @@ void MainWindow::on_showDetails()
 
 void MainWindow::on_detailsWidget_closeRequested()
 {
-    detailsWidget->hide();
-    detailsVisible = false;
+    if (detailsVisible) {
+        detailsVisible = false;
+        detailsWidget->hide();
+    }
 }
 
 
@@ -440,20 +472,53 @@ void MainWindow::onSearchProgress(int filesProcessed, int directoriesProcessed)
 
 void MainWindow::on_searchButton_clicked()
 {
+    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
+    // Add this one as a workaround.
+    if (isRecentlyClicked())
+        return;
+
     // Check if we're currently searching - if so, stop the search
-    if (isSearching && searchThread && searchThread->isSearching()) {
-        clearSearch();
+    if (isSearching && searchManager && searchManager->isSearching()) {
+        searchManager->stopSearch();
+        ui->searchButton->setText("Search");
+        ui->statusbar->showMessage("Search stopped", 3000);
         return;
     }
 
     // Otherwise, start a new search if there's text
     QString searchText = ui->searchPrompt->text().trimmed();
     if (searchText.isEmpty()) {
-        clearSearch();
         return;
     }
 
     startSearch(searchText);
+}
+
+void MainWindow::on_clearButton_clicked()
+{
+    // If search is running, stop
+    if (searchManager && searchManager->isSearching())
+    {
+        searchManager->stopSearch();
+    }
+
+    if (isSearching) {
+        // Restore original view
+        ui->folderView->setModel(&model);
+        ui->folderView->setRootIndex(savedFolderViewRoot);
+        isSearching = false;
+
+        // Reset UI state
+        ui->searchPrompt->clear();
+        ui->searchButton->setText("Search");
+
+        // Restore column widths
+        ui->folderView->setColumnWidth(0, 400);
+        for (int i = 1; i < 4; i++)
+            ui->folderView->setColumnWidth(i, 150);
+
+        ui->statusbar->showMessage("Search cleared", 2000);
+    }
 }
 
 void MainWindow::on_searchPrompt_returnPressed()
@@ -461,12 +526,35 @@ void MainWindow::on_searchPrompt_returnPressed()
     on_searchButton_clicked();
 }
 
+void MainWindow::on_searchModeCombo_currentIndexChanged(int index)
+{
+    switch (index) {
+    case 0:
+        currentSearchOptions.mode = SearchMode::FileName;
+        qDebug() << "Search mode set to: FileName";
+        break;
+    case 1:
+        currentSearchOptions.mode = SearchMode::FileContent;
+        qDebug() << "Search mode set to: FileContent";
+        break;
+    default:
+        currentSearchOptions.mode = SearchMode::FileName;
+        qDebug() << "Unknown index, defaulting to FileName";
+        break;
+    }
+
+    // If we're currently searching, clear the search
+    if (isSearching) {
+        clearSearch();
+    }
+}
+
+
 void MainWindow::startSearch(const QString &searchText)
 {
     // Cancel any ongoing search
-    if (searchThread && searchThread->isSearching()) {
-        searchThread->stopSearch();
-        searchThread->wait();
+    if (searchManager && searchManager->isSearching()) {
+        searchManager->stopSearch();
     }
 
     if (!isSearching) {
@@ -513,14 +601,14 @@ void MainWindow::startSearch(const QString &searchText)
 
     // Start the search
     QString searchDir = ui->addressBar->text();
-    searchThread->startSearch(searchText, searchDir, currentSearchOptions);
+    searchManager->startSearch(searchText, searchDir, currentSearchOptions);
 }
 
 void MainWindow::clearSearch()
 {
-    if (searchThread && searchThread->isSearching())
+    if (searchManager && searchManager->isSearching())
     {
-        searchThread->stopSearch();
+        searchManager->stopSearch();
     }
 
     if (isSearching) {
@@ -572,7 +660,7 @@ void MainWindow::init()
     ui->folderView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Setup treeView, folderView and addressBar
-    QString rootPath = "/";
+    QString rootPath = QDir::homePath();
     QModelIndex sourceIndex = model.index(rootPath);
     if (!sourceIndex.isValid()) {
         qDebug() << "Invalid root index for" << rootPath;
@@ -584,6 +672,7 @@ void MainWindow::init()
     ui->treeView->setRootIndex(proxyIndex);
     ui->folderView->setRootIndex(sourceIndex);
     ui->addressBar->setText(rootPath);
+    ui->addressBar->setReadOnly(true);
 
     // Hide all column of treeView except for the first one
     for (int i = 1; i < model.columnCount(); i++)
@@ -597,29 +686,12 @@ void MainWindow::init()
 
     // Signal connection
     connect(ui->treeView, &QTreeView::clicked, this, &MainWindow::on_treeView_clicked);
-    connect(ui->folderView, &QTableView::activated, this, &MainWindow::on_folderView_activated);
+    connect(ui->folderView, &QTableView::doubleClicked, this, &MainWindow::on_folderView_doubleClicked);
     connect(ui->backButton, &QPushButton::clicked, this, &MainWindow::on_backButton_clicked);
     connect(ui->upButton, &QPushButton::clicked, this, &MainWindow::on_upButton_clicked);
+    connect(ui->clearButton, &QPushButton::clicked, this, &MainWindow::on_clearButton_clicked);
     connect(ui->folderView, &QTableView::customContextMenuRequested, this, &MainWindow::on_folderView_contextMenu_requested);
-
-    connect(ui->folderView, &QTableView::doubleClicked,
-            this, [this](const QModelIndex &index) {
-                if (isSearching && index.isValid()) {
-                    // Get the full path from the first column
-                    QString fullPath = index.sibling(index.row(), 0).data(Qt::UserRole).toString();
-                    if (!fullPath.isEmpty()) {
-                        QFileInfo fileInfo(fullPath);
-                        if (fileInfo.isDir()) {
-                            // Navigate to the directory
-                            clearSearch();
-                            change_dir(fullPath);
-                        } else {
-                            // Open the file with default application
-                            QDesktopServices::openUrl(QUrl::fromLocalFile(fullPath));
-                        }
-                    }
-                }
-            });
+    connect(ui->searchModeCombo, &QComboBox::currentIndexChanged, this, &MainWindow::on_searchModeCombo_currentIndexChanged);
 
     // Shortcut for creating new folder
     QShortcut *newFolderShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this);
@@ -628,6 +700,9 @@ void MainWindow::init()
     // Shortcut for rename
     QShortcut *renameShortcut = new QShortcut(QKeySequence(Qt::Key_F2), ui->treeView);
     connect(renameShortcut, &QShortcut::activated, this, &MainWindow::on_rename);
+
+    // Init lastClickTime
+    lastClickTime = QTime::currentTime();
 }
 
 void MainWindow::setupDetailsWidget()
@@ -639,43 +714,31 @@ void MainWindow::setupDetailsWidget()
     connect(detailsWidget, &FileDetailsWidget::closeRequested,
             this, &MainWindow::on_detailsWidget_closeRequested);
 
-    // Get the current central widget
-    QWidget *currentCentralWidget = ui->centralwidget;
+    // Add the details widget to the content layout (next to the main splitter)
+    ui->contentLayout->addWidget(detailsWidget);
 
-    // Create a new central widget with horizontal layout
-    centralWidget = new QWidget(this);
-    mainLayout = new QHBoxLayout(centralWidget);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(0);
-
-    // Add the original central widget to the layout
-    mainLayout->addWidget(currentCentralWidget);
-
-    // Add the details widget (initially hidden)
-    mainLayout->addWidget(detailsWidget);
+    // Initially hide the details widget
     detailsWidget->hide();
-
-    // Set the new central widget
-    setCentralWidget(centralWidget);
+    detailsVisible = false;
 }
 
 void MainWindow::setupSearch()
 {
     // Create search thread
-    searchThread = new SearchThread(this);
+    searchManager = new SearchManager(this);
 
     // Create search results model
     searchResultsModel = new QStandardItemModel(this);
     searchResultsModel->setHorizontalHeaderLabels(QStringList() << "Name" << "Size" << "Type" << "Date Modified");
 
-    // Connect search signals
-    connect(searchThread, &SearchThread::resultFound, this, &MainWindow::onSearchResultFound);
-    connect(searchThread, &SearchThread::searchCompleted, this, &MainWindow::onSearchCompleted);
-    connect(searchThread, &SearchThread::searchCancelled, this, &MainWindow::onSearchCancelled);
-    connect(searchThread, &SearchThread::searchProgress, this, &MainWindow::onSearchProgress);
+    // Set default search mode
+    ui->searchModeCombo->setCurrentIndex(0);
 
-    // Connect text change signal
-    // connect(ui->searchPrompt, &QLineEdit::textChanged, this, &MainWindow::on_searchPrompt_textChanged);
+    // Connect search signals
+    connect(searchManager, &SearchManager::resultFound, this, &MainWindow::onSearchResultFound);
+    connect(searchManager, &SearchManager::searchCompleted, this, &MainWindow::onSearchCompleted);
+    connect(searchManager, &SearchManager::searchCancelled, this, &MainWindow::onSearchCancelled);
+    connect(searchManager, &SearchManager::searchProgress, this, &MainWindow::onSearchProgress);
 }
 
 
@@ -685,11 +748,31 @@ void MainWindow::showFileDetails(const QModelIndex &index)
         return;
     }
 
-    QString filePath = model.filePath(index);
-    QFileInfo fileInfo(filePath);
+    QFileInfo fileInfo;
+
+    if (isSearching) {
+        // Get file path from search result data
+        QModelIndex nameIndex = index.sibling(index.row(), 0);
+        QString fullPath = nameIndex.data(Qt::UserRole).toString();
+        if (fullPath.isEmpty()) {
+            qDebug() << "No path data found for search result";
+            return;
+        }
+        fileInfo = QFileInfo(fullPath);
+    } else {
+        // Normal file system mode
+        QString filePath = model.filePath(index);
+        fileInfo = QFileInfo(filePath);
+    }
 
     detailsWidget->setFileInfo(fileInfo);
-    detailsVisible = true;
+    if (!detailsVisible) {
+        detailsVisible = true;
+        detailsWidget->show();
+        qDebug() << "Details widget shown as sidebar";
+    } else {
+        qDebug() << "Details widget already visible, just updating content";
+    }
 }
 
 
@@ -699,25 +782,20 @@ QModelIndex MainWindow::mapToSourceModel(const QModelIndex &proxyIndex)
 
     // Check if proxyIndex is valid
     if (!proxyIndex.isValid()) {
-        qDebug() << "[mapToSourceModel] Invalid proxy index provided";
-        return QModelIndex(); // Return invalid index
+        return QModelIndex();
     }
 
     // Check if treeProxyModel is valid
     if (!treeProxyModel) {
-        qDebug() << "[mapToSourceModel] treeProxyModel is null";
-        return proxyIndex; // Return original index if no proxy model
+        return proxyIndex;
     }
 
     if (proxyIndex.model() == treeProxyModel)
     {
-        qDebug() << "[mapToSourceModel] before mapping...";
         QModelIndex sourceIndex = treeProxyModel->mapToSource(proxyIndex);
-        qDebug() << "[mapToSourceModel] mapping done! Valid:" << sourceIndex.isValid();
         return sourceIndex;
     }
 
-    qDebug() << "[mapToSourceModel] Index is not from proxy model, returning as-is";
     return proxyIndex;
 }
 
@@ -741,4 +819,16 @@ QString MainWindow::formatFileSize(qint64 size)
     } else {
         return QString::number(size) + " bytes";
     }
+}
+
+bool MainWindow::isRecentlyClicked()
+{
+    QTime currentTime = QTime::currentTime();
+
+    if (lastClickTime.msecsTo(currentTime) < DEBOUNCE_THRESHOLDMS)
+    {
+        return true;
+    }
+    lastClickTime = currentTime;
+    return false;
 }

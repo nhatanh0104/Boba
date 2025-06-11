@@ -178,12 +178,12 @@
             </property>
             <item>
              <property name="text">
-              <string>File Names</string>
+              <string>Names</string>
              </property>
             </item>
             <item>
              <property name="text">
-              <string>File Contents</string>
+              <string>Contents</string>
              </property>
             </item>
            </widget>
@@ -207,6 +207,19 @@
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QPushButton" name="clearButton">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+              <horstretch>1</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="text">
+             <string>Clear</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
@@ -214,36 +227,57 @@
      </widget>
     </item>
     <item>
-     <widget class="QSplitter" name="splitter">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="orientation">
-       <enum>Qt::Orientation::Horizontal</enum>
-      </property>
-      <widget class="QTreeView" name="treeView">
-       <property name="font">
-        <font>
-         <pointsize>12</pointsize>
-        </font>
+     <widget class="QWidget" name="contentWidget" native="true">
+      <layout class="QHBoxLayout" name="contentLayout">
+       <property name="spacing">
+        <number>0</number>
        </property>
-      </widget>
-      <widget class="QTableView" name="folderView">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-         <horstretch>3</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
+       <property name="leftMargin">
+        <number>0</number>
        </property>
-       <property name="font">
-        <font>
-         <pointsize>12</pointsize>
-        </font>
+       <property name="topMargin">
+        <number>0</number>
        </property>
-      </widget>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QSplitter" name="splitter">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>1</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+         <widget class="QTreeView" name="treeView">
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+           </font>
+          </property>
+         </widget>
+         <widget class="QTableView" name="folderView">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>3</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="font">
+           <font>
+            <pointsize>12</pointsize>
+           </font>
+          </property>
+         </widget>
+        </widget>
+       </item>
+      </layout>
      </widget>
     </item>
    </layout>

@@ -5,13 +5,11 @@
 #include <QFileSystemModel>
 #include <QStack>
 #include <QPoint>
-#include <QMimeData>
-#include <QDragEnterEvent>
-#include <QDropEvent>
 #include <QStandardItemModel>
+#include <QTime>
 #include "filedetailswidget.h"
 #include "directoryfilterproxymodel.h"
-#include "searchthread.h"
+#include "searchmanager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -27,16 +25,10 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-protected:
-    // Override drag and drop event
-    void dragEnterEvent(QDragEnterEvent *event) override;
-    void dragMoveEvent(QDragMoveEvent *event) override;
-    void dropEvent(QDropEvent *event) override;
-
 private slots:
     // Views
     void on_treeView_clicked(const QModelIndex &index);
-    void on_folderView_activated(const QModelIndex &index);
+    void on_folderView_doubleClicked(const QModelIndex &index);
 
     // Right click context menu
     void on_folderView_contextMenu_requested(const QPoint &pos);
@@ -46,6 +38,7 @@ private slots:
     // Buttons
     void on_backButton_clicked();
     void on_upButton_clicked();
+    void on_clearButton_clicked();
 
     // Details Widget
     void on_showDetails();
@@ -60,6 +53,7 @@ private slots:
     void clearSearch();
     void on_searchButton_clicked();
     void on_searchPrompt_returnPressed();
+    void on_searchModeCombo_currentIndexChanged(int index);
 
 private:
     void init();
@@ -71,24 +65,26 @@ private:
     QModelIndex mapFromSourceModel(const QModelIndex &sourceIndex);
     void startSearch(const QString &searchText);
     QString formatFileSize(qint64 size);
+    bool isRecentlyClicked();
 
     Ui::MainWindow *ui;
     QFileSystemModel model;
     DirectoryFilterProxyModel *treeProxyModel;
     QStack<QString> history_paths;
+    QTime lastClickTime;
+    const int DEBOUNCE_THRESHOLDMS = 100;
 
     // Details widget
     FileDetailsWidget *detailsWidget;
-    QWidget *centralWidget;
-    QHBoxLayout *mainLayout;
     bool detailsVisible;
 
     // Search-related
-    SearchThread *searchThread;
+    SearchManager *searchManager;
     QSortFilterProxyModel *searchProxyModel;
     QStandardItemModel *searchResultsModel;
     bool isSearching;
     QModelIndex savedFolderViewRoot;
     SearchOptions currentSearchOptions;
 };
+
 #endif // MAINWINDOW_H
