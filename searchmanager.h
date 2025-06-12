@@ -38,8 +38,26 @@ struct SearchOptions
     SearchMode mode = SearchMode::FileName;
     qint64 maxFileSizeBytes = 10 * 1024 * 1024;
     QStringList textFileExtensions = {
-        "txt", "cpp", "h", "hpp", "c", "cc", "java", "py", "js",
-        "html", "css", "xml", "json", "md", "ini", "conf", "log"
+        // Basic text
+        "txt", "log", "readme",
+        // Programming - C/C++
+        "c", "cpp", "h", "hpp", "cc", "cxx",
+        // Programming - Popular languages
+        "java", "py", "js", "ts", "php", "rb", "go", "rs", "cs", "kt",
+        // Web development
+        "html", "htm", "css", "xml", "json", "jsx", "tsx", "vue",
+        // Scripts
+        "sh", "bash", "bat", "cmd", "ps1",
+        // Config files
+        "ini", "cfg", "conf", "config", "yaml", "yml", "toml", "env",
+        // Documentation
+        "md", "rst", "tex",
+        // Data
+        "csv", "sql", "tsv",
+        // Build/Project files
+        "makefile", "cmake", "gradle", "pom", "package", "dockerfile",
+        // Version control
+        "gitignore", "gitattributes",
     };
 };
 

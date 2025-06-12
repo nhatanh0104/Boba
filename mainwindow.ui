@@ -12,12 +12,12 @@
   </property>
   <property name="minimumSize">
    <size>
-    <width>0</width>
-    <height>0</height>
+    <width>800</width>
+    <height>600</height>
    </size>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Boba File Manager</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <property name="font">
@@ -26,18 +26,45 @@
     </font>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>6</number>
+    </property>
+    <property name="leftMargin">
+     <number>6</number>
+    </property>
+    <property name="topMargin">
+     <number>6</number>
+    </property>
+    <property name="rightMargin">
+     <number>6</number>
+    </property>
+    <property name="bottomMargin">
+     <number>6</number>
+    </property>
     <item>
      <widget class="QWidget" name="topWidget" native="true">
-      <property name="enabled">
-       <bool>true</bool>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
       </property>
       <property name="minimumSize">
        <size>
         <width>0</width>
-        <height>0</height>
+        <height>80</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>16777215</width>
+        <height>100</height>
        </size>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_2">
+       <property name="spacing">
+        <number>4</number>
+       </property>
        <property name="leftMargin">
         <number>0</number>
        </property>
@@ -52,7 +79,16 @@
        </property>
        <item>
         <widget class="QWidget" name="navigationWidget" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <property name="spacing">
+           <number>4</number>
+          </property>
           <property name="leftMargin">
            <number>0</number>
           </property>
@@ -67,10 +103,22 @@
           </property>
           <item>
            <widget class="QPushButton" name="backButton">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
             <property name="minimumSize">
              <size>
-              <width>80</width>
+              <width>60</width>
               <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>80</width>
+              <height>40</height>
              </size>
             </property>
             <property name="text">
@@ -80,10 +128,22 @@
           </item>
           <item>
            <widget class="QPushButton" name="upButton">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
             <property name="minimumSize">
              <size>
-              <width>80</width>
+              <width>60</width>
               <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>80</width>
+              <height>40</height>
              </size>
             </property>
             <property name="text">
@@ -95,14 +155,20 @@
            <widget class="QLineEdit" name="addressBar">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-              <horstretch>3</horstretch>
+              <horstretch>1</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
             </property>
             <property name="minimumSize">
              <size>
-              <width>0</width>
+              <width>200</width>
               <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>40</height>
              </size>
             </property>
            </widget>
@@ -112,16 +178,28 @@
        </item>
        <item>
         <widget class="QWidget" name="searchWidget" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="minimumSize">
           <size>
            <width>0</width>
-           <height>40</height>
+           <height>30</height>
           </size>
          </property>
-         <property name="focusPolicy">
-          <enum>Qt::FocusPolicy::NoFocus</enum>
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>50</height>
+          </size>
          </property>
          <layout class="QHBoxLayout" name="horizontalLayout">
+          <property name="spacing">
+           <number>4</number>
+          </property>
           <property name="leftMargin">
            <number>0</number>
           </property>
@@ -138,30 +216,40 @@
            <widget class="QLineEdit" name="searchPrompt">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-              <horstretch>10</horstretch>
+              <horstretch>3</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
             </property>
             <property name="minimumSize">
              <size>
-              <width>0</width>
+              <width>150</width>
               <height>30</height>
              </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>Search current directory...</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QLabel" name="searchIn">
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-              <horstretch>1</horstretch>
+             <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+              <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
             </property>
-            <property name="font">
-             <font>
-              <pointsize>12</pointsize>
-             </font>
+            <property name="minimumSize">
+             <size>
+              <width>70</width>
+              <height>0</height>
+             </size>
             </property>
             <property name="text">
              <string>Search in:</string>
@@ -171,10 +259,22 @@
           <item>
            <widget class="QComboBox" name="searchModeCombo">
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-              <horstretch>2</horstretch>
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>100</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>150</width>
+              <height>30</height>
+             </size>
             </property>
             <item>
              <property name="text">
@@ -191,14 +291,20 @@
           <item>
            <widget class="QPushButton" name="searchButton">
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-              <horstretch>1</horstretch>
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
             </property>
             <property name="minimumSize">
              <size>
-              <width>80</width>
+              <width>60</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
               <height>30</height>
              </size>
             </property>
@@ -210,10 +316,22 @@
           <item>
            <widget class="QPushButton" name="clearButton">
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-              <horstretch>1</horstretch>
+             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+              <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>60</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>100</width>
+              <height>30</height>
+             </size>
             </property>
             <property name="text">
              <string>Clear</string>
@@ -228,6 +346,12 @@
     </item>
     <item>
      <widget class="QWidget" name="contentWidget" native="true">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+        <horstretch>0</horstretch>
+        <verstretch>1</verstretch>
+       </sizepolicy>
+      </property>
       <layout class="QHBoxLayout" name="contentLayout">
        <property name="spacing">
         <number>0</number>
@@ -249,13 +373,34 @@
          <property name="sizePolicy">
           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
            <horstretch>1</horstretch>
-           <verstretch>0</verstretch>
+           <verstretch>1</verstretch>
           </sizepolicy>
          </property>
          <property name="orientation">
           <enum>Qt::Orientation::Horizontal</enum>
          </property>
+         <property name="handleWidth">
+          <number>4</number>
+         </property>
          <widget class="QTreeView" name="treeView">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+            <horstretch>1</horstretch>
+            <verstretch>1</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>200</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>500</width>
+            <height>16777215</height>
+           </size>
+          </property>
           <property name="font">
            <font>
             <pointsize>12</pointsize>
@@ -266,8 +411,14 @@
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
             <horstretch>3</horstretch>
-            <verstretch>0</verstretch>
+            <verstretch>1</verstretch>
            </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>400</width>
+            <height>0</height>
+           </size>
           </property>
           <property name="font">
            <font>
