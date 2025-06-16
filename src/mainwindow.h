@@ -7,9 +7,9 @@
 #include <QPoint>
 #include <QStandardItemModel>
 #include <QTime>
-#include "filedetailswidget.h"
-#include "directoryfilterproxymodel.h"
-#include "searchmanager.h"
+#include "widgets/filedetailswidget.h"
+#include "models/directoryfilterproxymodel.h"
+#include "search/searchmanager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -27,37 +27,38 @@ public:
 
 private slots:
     // Views
-    void on_treeView_clicked(const QModelIndex &index);
-    void on_folderView_doubleClicked(const QModelIndex &index);
+    void onTreeViewClicked(const QModelIndex &index);
+    void onFolderViewDoubleClicked(const QModelIndex &index);
+    void onFolderViewClicked(const QModelIndex &index);
 
     // Right click context menu
-    void on_folderView_contextMenu_requested(const QPoint &pos);
-    void on_new_folder();
-    void on_rename();
+    void onFolderViewContextMenuRequested(const QPoint &pos);
+    void onNewFolder();
+    void onRename();
 
     // Buttons
-    void on_backButton_clicked();
-    void on_upButton_clicked();
-    void on_clearButton_clicked();
+    void onBackButtonClicked();
+    void onUpButtonClicked();
+    void onClearButtonClicked();
 
     // Details Widget
-    void on_showDetails();
-    void on_detailsWidget_closeRequested();
+    void onShowDetails();
+    void onDetailsWidgetCloseRequested();
 
     // Search-related slots
     // void on_searchPrompt_textChanged(const QString &text);
-    void onSearchResultFound(const SearchResult &result);
+    void onSearchResultsFound(const QList<SearchResult> &results);
     void onSearchCompleted(int totalResults);
     void onSearchCancelled();
     void onSearchProgress(int fileProcessed, int directoriesProcessed);
     void clearSearch();
-    void on_searchButton_clicked();
-    void on_searchPrompt_returnPressed();
-    void on_searchModeCombo_currentIndexChanged(int index);
+    void onSearchButtonClicked();
+    void onSearchPromptReturnPressed();
+    void onSearchModeComboCurrentIndexChanged(int index);
 
 private:
     void init();
-    void change_dir(const QString &path);
+    void changeDir(const QString &path);
     void setupDetailsWidget();
     void setupSearch();
     void showFileDetails(const QModelIndex &index);
@@ -65,7 +66,6 @@ private:
     QModelIndex mapFromSourceModel(const QModelIndex &sourceIndex);
     void startSearch(const QString &searchText);
     QString formatFileSize(qint64 size);
-    bool isRecentlyClicked();
 
     Ui::MainWindow *ui;
     QFileSystemModel model;

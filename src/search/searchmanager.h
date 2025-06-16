@@ -18,6 +18,8 @@ enum SearchMode
     FileContent,    // Search in file contents
 };
 
+
+
 struct SearchResult
 {
     QString fileName;
@@ -33,33 +35,17 @@ struct SearchResult
     int lineNumber;
 };
 
+
+
+
 struct SearchOptions
 {
     SearchMode mode = SearchMode::FileName;
     qint64 maxFileSizeBytes = 10 * 1024 * 1024;
-    QStringList textFileExtensions = {
-        // Basic text
-        "txt", "log", "readme",
-        // Programming - C/C++
-        "c", "cpp", "h", "hpp", "cc", "cxx",
-        // Programming - Popular languages
-        "java", "py", "js", "ts", "php", "rb", "go", "rs", "cs", "kt",
-        // Web development
-        "html", "htm", "css", "xml", "json", "jsx", "tsx", "vue",
-        // Scripts
-        "sh", "bash", "bat", "cmd", "ps1",
-        // Config files
-        "ini", "cfg", "conf", "config", "yaml", "yml", "toml", "env",
-        // Documentation
-        "md", "rst", "tex",
-        // Data
-        "csv", "sql", "tsv",
-        // Build/Project files
-        "makefile", "cmake", "gradle", "pom", "package", "dockerfile",
-        // Version control
-        "gitignore", "gitattributes",
-    };
 };
+
+
+
 
 class SearchManager;
 
@@ -72,15 +58,22 @@ public:
     void run() override;
 
 private:
-    bool searchInFile(const QFileInfo &fileInfo);
-    bool isTextFile(const QFileInfo &fileInfo);
+    bool searchInFile(const QFileInfo &fileInfo, QList<SearchResult> &results);
     QString getFileType(const QFileInfo &fileInfo);
+    SearchResult createSearchResult(const QFileInfo &fileInfo, int lineNumber, const QString &matchedLine);
 
     QString m_dirPath;
     QString m_searchText;
     SearchOptions m_options;
     SearchManager *m_manager;
+    const int BATCH_SIZE = 15;
 };
+
+
+
+
+
+
 
 class SearchManager : public QObject
 {
@@ -94,7 +87,7 @@ public:
     bool isSearching() const;
 
     // Thread-safe methods for worker tasks
-    void reportResult(const SearchResult &result);
+    void reportResults(const QList<SearchResult> &results);
     void incrementCounters(int files, int directories);
     bool shouldStop() const;
     void workerFinished();
@@ -102,7 +95,7 @@ public:
 
 signals:
     void searchProgress(int filesProcessed, int directoriesProcessed);
-    void resultFound(const SearchResult &result);
+    void resultsFound(const QList<SearchResult> &results);
     void searchCompleted(int totalResults);
     void searchCancelled();
 

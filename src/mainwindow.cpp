@@ -37,8 +37,9 @@ MainWindow::~MainWindow()
         searchManager->stopSearch();
         delete searchManager;
     }
-    delete searchResultsModel;
-    delete searchProxyModel;
+    if (searchResultsModel) {
+        searchResultsModel->clear();
+    }
     delete ui;
 }
 
@@ -47,13 +48,8 @@ MainWindow::~MainWindow()
 
 
 
-void MainWindow::on_treeView_clicked(const QModelIndex &index)
+void MainWindow::onTreeViewClicked(const QModelIndex &index)
 {
-    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
-    // Add this one as a workaround.
-    if (isRecentlyClicked())
-        return;
-
     // Map proxy index to source index
     QModelIndex sourceIndex = mapToSourceModel(index);
     if (!sourceIndex.isValid())
@@ -77,13 +73,8 @@ void MainWindow::on_treeView_clicked(const QModelIndex &index)
         detailsWidget->setFileInfo(model.fileInfo(sourceIndex));
 }
 
-void MainWindow::on_folderView_doubleClicked(const QModelIndex &index)
+void MainWindow::onFolderViewDoubleClicked(const QModelIndex &index)
 {
-    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
-    // Add this one as a workaround.
-    if (isRecentlyClicked())
-        return;
-
     if (!index.isValid()) {
         return;
     }
@@ -103,7 +94,7 @@ void MainWindow::on_folderView_doubleClicked(const QModelIndex &index)
                     qDebug() << "Navigating to directory:" << fullPath;
                     clearSearch();
                     history_paths.push(ui->addressBar->text());
-                    change_dir(fullPath);
+                    changeDir(fullPath);
                 } else {
                     // Show message for files
                     QMessageBox msgBox;
@@ -147,12 +138,15 @@ void MainWindow::on_folderView_doubleClicked(const QModelIndex &index)
     }
 }
 
+void MainWindow::onFolderViewClicked(const QModelIndex &index)
+{
+    if (detailsVisible)
+        detailsWidget->setFileInfo(model.fileInfo(index));
+}
 
 
 
-
-
-void MainWindow::on_folderView_contextMenu_requested(const QPoint &pos)
+void MainWindow::onFolderViewContextMenuRequested(const QPoint &pos)
 {
     qDebug() << "Context menu requested at" << pos;
 
@@ -169,25 +163,22 @@ void MainWindow::on_folderView_contextMenu_requested(const QPoint &pos)
 
         contextMenu.addSeparator();
 
-        QAction *renameAction = contextMenu.addAction("Rename");
-        connect(renameAction, &QAction::triggered, this, &MainWindow::on_rename);
-
         // Only allow rename if not in search mode
         if (!isSearching) {
             QAction *renameAction = contextMenu.addAction("Rename");
-            connect(renameAction, &QAction::triggered, this, &MainWindow::on_rename);
+            connect(renameAction, &QAction::triggered, this, &MainWindow::onRename);
         }
     }
 
     // Only show "Create New Folder" option if not in search mode
     if (!isSearching) {
         QAction *newFolderAction = contextMenu.addAction("Create New Folder");
-        connect(newFolderAction, &QAction::triggered, this, &MainWindow::on_new_folder);
+        connect(newFolderAction, &QAction::triggered, this, &MainWindow::onNewFolder);
     }
     contextMenu.exec(ui->folderView->viewport()->mapToGlobal(pos));
 }
 
-void MainWindow::on_new_folder()
+void MainWindow::onNewFolder()
 {
     // Get the current directory from the address bar
     QString currentPath = ui->addressBar->text();
@@ -261,7 +252,7 @@ void MainWindow::on_new_folder()
     });
 }
 
-void MainWindow::on_rename()
+void MainWindow::onRename()
 {
     qDebug() << "on_raname_folder slot called";
 
@@ -300,30 +291,20 @@ void MainWindow::on_rename()
 
 
 
-void MainWindow::on_backButton_clicked()
+void MainWindow::onBackButtonClicked()
 {
-    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
-    // Add this one as a workaround.
-    if (isRecentlyClicked())
-        return;
-
     // Clear search first
     clearSearch();
 
     if (!history_paths.isEmpty())
     {
         QString new_path = history_paths.pop();
-        change_dir(new_path);
+        changeDir(new_path);
     }
 }
 
-void MainWindow::on_upButton_clicked()
+void MainWindow::onUpButtonClicked()
 {
-    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
-    // Add this one as a workaround.
-    if (isRecentlyClicked())
-        return;
-
     // Clear search first
     clearSearch();
 
@@ -332,12 +313,12 @@ void MainWindow::on_upButton_clicked()
     if (dir.cdUp())
     {
         history_paths.push(current_path);
-        change_dir(dir.absolutePath());
+        changeDir(dir.absolutePath());
     }
 }
 
 
-void MainWindow::change_dir(const QString &path)
+void MainWindow::changeDir(const QString &path)
 {
     QDir dir(path);
     if (dir.exists())
@@ -361,7 +342,7 @@ void MainWindow::change_dir(const QString &path)
 
 
 
-void MainWindow::on_showDetails()
+void MainWindow::onShowDetails()
 {
     // Get the currently selected item in folderView
     QModelIndex currentIndex = ui->folderView->currentIndex();
@@ -372,7 +353,7 @@ void MainWindow::on_showDetails()
     }
 }
 
-void MainWindow::on_detailsWidget_closeRequested()
+void MainWindow::onDetailsWidgetCloseRequested()
 {
     if (detailsVisible) {
         detailsVisible = false;
@@ -386,68 +367,70 @@ void MainWindow::on_detailsWidget_closeRequested()
 
 
 
-void MainWindow::onSearchResultFound(const SearchResult &result)
+void MainWindow::onSearchResultsFound(const QList<SearchResult> &results)
 {
-    QList<QStandardItem*> rowItems;
+    for (const SearchResult &result : results)
+    {
+        QList<QStandardItem*> rowItems;
+        if (currentSearchOptions.mode == SearchMode::FileName) {
+            // Filename search result
+            QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
+            nameItem->setData(result.fullPath, Qt::UserRole);
+            nameItem->setEditable(false);
+            rowItems << nameItem;
 
-    if (currentSearchOptions.mode == SearchMode::FileName) {
-        // Filename search result
-        QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
-        nameItem->setData(result.fullPath, Qt::UserRole);
-        nameItem->setEditable(false);
-        rowItems << nameItem;
+            // Location
+            QFileInfo fileInfo(result.fullPath);
+            QString location = fileInfo.absolutePath();
+            QString searchRoot = ui->addressBar->text();
+            if (location.startsWith(searchRoot)) {
+                location = location.mid(searchRoot.length());
+                if (location.startsWith('/') || location.startsWith('\\'))
+                    location = location.mid(1);
+                if (location.isEmpty())
+                    location = ".";
+            }
+            rowItems << new QStandardItem(location);
 
-        // Location
-        QFileInfo fileInfo(result.fullPath);
-        QString location = fileInfo.absolutePath();
-        QString searchRoot = ui->addressBar->text();
-        if (location.startsWith(searchRoot)) {
-            location = location.mid(searchRoot.length());
-            if (location.startsWith('/') || location.startsWith('\\'))
-                location = location.mid(1);
-            if (location.isEmpty())
-                location = ".";
+            // Size
+            QString sizeText = result.isDirectory ? "" : formatFileSize(result.fileSize);
+            rowItems << new QStandardItem(sizeText);
+
+            // Type
+            rowItems << new QStandardItem(result.fileType);
+
+            // Modified
+            rowItems << new QStandardItem(result.lastModified);
+
+        } else {
+            // Content search result
+            QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
+            nameItem->setData(result.fullPath, Qt::UserRole);
+            nameItem->setEditable(false);
+            rowItems << nameItem;
+
+            // Line number
+            rowItems << new QStandardItem(QString::number(result.lineNumber));
+
+            // Matched line
+            QStandardItem *matchItem = new QStandardItem(result.matchedLine);
+            matchItem->setToolTip(result.matchedLine); // Full text in tooltip
+            rowItems << matchItem;
+
+            // Size
+            rowItems << new QStandardItem(formatFileSize(result.fileSize));
+
+            // Modified
+            rowItems << new QStandardItem(result.lastModified);
         }
-        rowItems << new QStandardItem(location);
 
-        // Size
-        QString sizeText = result.isDirectory ? "" : formatFileSize(result.fileSize);
-        rowItems << new QStandardItem(sizeText);
+        // Make all items non-editable
+        for (QStandardItem *item : rowItems) {
+            item->setEditable(false);
+        }
 
-        // Type
-        rowItems << new QStandardItem(result.fileType);
-
-        // Modified
-        rowItems << new QStandardItem(result.lastModified);
-
-    } else {
-        // Content search result
-        QStandardItem *nameItem = new QStandardItem(result.icon, result.fileName);
-        nameItem->setData(result.fullPath, Qt::UserRole);
-        nameItem->setEditable(false);
-        rowItems << nameItem;
-
-        // Line number
-        rowItems << new QStandardItem(QString::number(result.lineNumber));
-
-        // Matched line
-        QStandardItem *matchItem = new QStandardItem(result.matchedLine);
-        matchItem->setToolTip(result.matchedLine); // Full text in tooltip
-        rowItems << matchItem;
-
-        // Size
-        rowItems << new QStandardItem(formatFileSize(result.fileSize));
-
-        // Modified
-        rowItems << new QStandardItem(result.lastModified);
+        searchResultsModel->appendRow(rowItems);
     }
-
-    // Make all items non-editable
-    for (QStandardItem *item : rowItems) {
-        item->setEditable(false);
-    }
-
-    searchResultsModel->appendRow(rowItems);
 }
 
 void MainWindow::onSearchCompleted(int totalResults)
@@ -470,13 +453,8 @@ void MainWindow::onSearchProgress(int filesProcessed, int directoriesProcessed)
     ui->statusbar->showMessage(message, 0);
 }
 
-void MainWindow::on_searchButton_clicked()
+void MainWindow::onSearchButtonClicked()
 {
-    // I dont know why this happen but when I use QtCreator using WSL on Windows, 1 mouse click always register as 2.
-    // Add this one as a workaround.
-    if (isRecentlyClicked())
-        return;
-
     // Check if we're currently searching - if so, stop the search
     if (isSearching && searchManager && searchManager->isSearching()) {
         searchManager->stopSearch();
@@ -494,7 +472,7 @@ void MainWindow::on_searchButton_clicked()
     startSearch(searchText);
 }
 
-void MainWindow::on_clearButton_clicked()
+void MainWindow::onClearButtonClicked()
 {
     // If search is running, stop
     if (searchManager && searchManager->isSearching())
@@ -521,12 +499,12 @@ void MainWindow::on_clearButton_clicked()
     }
 }
 
-void MainWindow::on_searchPrompt_returnPressed()
+void MainWindow::onSearchPromptReturnPressed()
 {
-    on_searchButton_clicked();
+    onSearchButtonClicked();
 }
 
-void MainWindow::on_searchModeCombo_currentIndexChanged(int index)
+void MainWindow::onSearchModeComboCurrentIndexChanged(int index)
 {
     switch (index) {
     case 0:
@@ -595,7 +573,18 @@ void MainWindow::startSearch(const QString &searchText)
         }
     } else {
         // Already searching - just clear results
-        searchResultsModel->removeRows(0, searchResultsModel->rowCount());
+        searchResultsModel->clear();
+
+        // Setup headers
+        if (currentSearchOptions.mode == SearchMode::FileName) {
+            searchResultsModel->setHorizontalHeaderLabels(
+                QStringList() << "Name" << "Location" << "Size" << "Type" << "Modified");
+        } else {
+            searchResultsModel->setHorizontalHeaderLabels(
+                QStringList() << "Name" << "Line" << "Match" << "Size" << "Modified");
+        }
+
+        // Show message
         ui->statusbar->showMessage("Restarting search...", 0);
     }
 
@@ -612,6 +601,11 @@ void MainWindow::clearSearch()
     }
 
     if (isSearching) {
+        if (searchResultsModel) {
+            searchResultsModel->clear();
+            searchResultsModel->removeRows(0, searchResultsModel->rowCount());
+        }
+
         // Restore original view
         ui->folderView->setModel(&model);
         ui->folderView->setRootIndex(savedFolderViewRoot);
@@ -632,7 +626,8 @@ void MainWindow::clearSearch()
 
 void MainWindow::init()
 {
-    model.setRootPath(QDir::rootPath());
+    QString rootPath = QDir::rootPath();
+    model.setRootPath(rootPath);
     model.setReadOnly(false);
 
     // Create and setup the directory filter proxy model
@@ -649,18 +644,12 @@ void MainWindow::init()
     ui->folderView->setSelectionBehavior(QAbstractItemView::SelectRows); // Select entire row
     ui->folderView->setFocusPolicy(Qt::StrongFocus);
 
-    // Enable drag and drop
-    ui->folderView->setDragEnabled(true);
-    ui->folderView->setAcceptDrops(true);
-    ui->folderView->setDropIndicatorShown(true);
-    ui->folderView->setDragDropMode(QAbstractItemView::DragDrop);
-    ui->folderView->setDefaultDropAction(Qt::MoveAction);
-
     // Enable context menu
     ui->folderView->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // Setup treeView, folderView and addressBar
-    QString rootPath = QDir::homePath();
+    QString homePath = QDir::homePath();
+    QModelIndex homeIndex = model.index(homePath);
     QModelIndex sourceIndex = model.index(rootPath);
     if (!sourceIndex.isValid()) {
         qDebug() << "Invalid root index for" << rootPath;
@@ -670,8 +659,8 @@ void MainWindow::init()
     // Map source index to proxy index for treeView
     QModelIndex proxyIndex = treeProxyModel->mapFromSource(sourceIndex);
     ui->treeView->setRootIndex(proxyIndex);
-    ui->folderView->setRootIndex(sourceIndex);
-    ui->addressBar->setText(rootPath);
+    ui->folderView->setRootIndex(homeIndex);
+    ui->addressBar->setText(homePath);
     ui->addressBar->setReadOnly(true);
 
     // Hide all column of treeView except for the first one
@@ -685,21 +674,25 @@ void MainWindow::init()
         ui->folderView->setColumnWidth(i, 150);
 
     // Signal connection
-    connect(ui->treeView, &QTreeView::clicked, this, &MainWindow::on_treeView_clicked);
-    connect(ui->folderView, &QTableView::doubleClicked, this, &MainWindow::on_folderView_doubleClicked);
-    connect(ui->backButton, &QPushButton::clicked, this, &MainWindow::on_backButton_clicked);
-    connect(ui->upButton, &QPushButton::clicked, this, &MainWindow::on_upButton_clicked);
-    connect(ui->clearButton, &QPushButton::clicked, this, &MainWindow::on_clearButton_clicked);
-    connect(ui->folderView, &QTableView::customContextMenuRequested, this, &MainWindow::on_folderView_contextMenu_requested);
-    connect(ui->searchModeCombo, &QComboBox::currentIndexChanged, this, &MainWindow::on_searchModeCombo_currentIndexChanged);
+    connect(ui->treeView, &QTreeView::clicked, this, &MainWindow::onTreeViewClicked);
+    connect(ui->folderView, &QTableView::doubleClicked, this, &MainWindow::onFolderViewDoubleClicked);
+    connect(ui->folderView, &QTableView::clicked, this, &MainWindow::onFolderViewClicked);
+    connect(ui->backButton, &QPushButton::clicked, this, &MainWindow::onBackButtonClicked);
+    connect(ui->upButton, &QPushButton::clicked, this, &MainWindow::onUpButtonClicked);
+    connect(ui->clearButton, &QPushButton::clicked, this, &MainWindow::onClearButtonClicked);
+    connect(ui->folderView, &QTableView::customContextMenuRequested, this, &MainWindow::onFolderViewContextMenuRequested);
+    connect(ui->searchModeCombo, &QComboBox::currentIndexChanged, this, &MainWindow::onSearchModeComboCurrentIndexChanged);
+    connect(ui->searchButton, &QPushButton::clicked, this, &MainWindow::onSearchButtonClicked);
+    connect(ui->clearButton, &QPushButton::clicked, this, &MainWindow::onClearButtonClicked);
+    connect(ui->searchPrompt, &QLineEdit::returnPressed, this, &MainWindow::onSearchPromptReturnPressed);
 
     // Shortcut for creating new folder
     QShortcut *newFolderShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N), this);
-    connect(newFolderShortcut, &QShortcut::activated, this, &MainWindow::on_new_folder);
+    connect(newFolderShortcut, &QShortcut::activated, this, &MainWindow::onNewFolder);
 
     // Shortcut for rename
     QShortcut *renameShortcut = new QShortcut(QKeySequence(Qt::Key_F2), ui->treeView);
-    connect(renameShortcut, &QShortcut::activated, this, &MainWindow::on_rename);
+    connect(renameShortcut, &QShortcut::activated, this, &MainWindow::onRename);
 
     // Init lastClickTime
     lastClickTime = QTime::currentTime();
@@ -712,7 +705,7 @@ void MainWindow::setupDetailsWidget()
 
     // Connect the close signal
     connect(detailsWidget, &FileDetailsWidget::closeRequested,
-            this, &MainWindow::on_detailsWidget_closeRequested);
+            this, &MainWindow::onDetailsWidgetCloseRequested);
 
     // Add the details widget to the content layout (next to the main splitter)
     ui->contentLayout->addWidget(detailsWidget);
@@ -735,7 +728,7 @@ void MainWindow::setupSearch()
     ui->searchModeCombo->setCurrentIndex(0);
 
     // Connect search signals
-    connect(searchManager, &SearchManager::resultFound, this, &MainWindow::onSearchResultFound);
+    connect(searchManager, &SearchManager::resultsFound, this, &MainWindow::onSearchResultsFound);
     connect(searchManager, &SearchManager::searchCompleted, this, &MainWindow::onSearchCompleted);
     connect(searchManager, &SearchManager::searchCancelled, this, &MainWindow::onSearchCancelled);
     connect(searchManager, &SearchManager::searchProgress, this, &MainWindow::onSearchProgress);
@@ -819,16 +812,4 @@ QString MainWindow::formatFileSize(qint64 size)
     } else {
         return QString::number(size) + " bytes";
     }
-}
-
-bool MainWindow::isRecentlyClicked()
-{
-    QTime currentTime = QTime::currentTime();
-
-    if (lastClickTime.msecsTo(currentTime) < DEBOUNCE_THRESHOLDMS)
-    {
-        return true;
-    }
-    lastClickTime = currentTime;
-    return false;
 }

@@ -20,11 +20,13 @@ DirectorySearchWorker::DirectorySearchWorker(const QString &dirPath, const QStri
 
 void DirectorySearchWorker::run()
 {
+    // Check if worker shouldstop
     if (m_manager->shouldStop()) {
         m_manager->workerFinished();
         return;
     }
 
+    // Check if search dir is valid
     QDir dir(m_dirPath);
     if (!dir.exists() || !dir.isReadable()) {
         m_manager->workerFinished();
@@ -34,74 +36,72 @@ void DirectorySearchWorker::run()
     // Get all entries (files AND subdirectories)
     QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
 
+
     QFileIconProvider iconProvider;
     int processedCount = 0;
+    QList<SearchResult> resultBatch;
+    resultBatch.reserve(BATCH_SIZE);
 
-    for (const QFileInfo &fileInfo : entries) {
+    // Iterate through all entries in the dir
+    for (const QFileInfo &fileInfo : entries) {        
         if (m_manager->shouldStop()) {
             break;
         }
 
-        if (fileInfo.isDir()) {
-            // Add subdirectory to work queue for other workers to process
-            m_manager->addDirectoryToQueue(fileInfo.absoluteFilePath());
+        // Search in file name (No different between files/dirs)
+        if (m_options.mode == SearchMode::FileName) {
             QString fileName = fileInfo.fileName();
             if (fileName.contains(m_searchText, Qt::CaseInsensitive)) {
-                SearchResult result;
-                result.fileName = fileName;
-                result.fullPath = fileInfo.absoluteFilePath();
-                result.fileSize = fileInfo.size();
-                result.fileType = getFileType(fileInfo);
-                result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
-                result.isDirectory = false;
-                result.icon = iconProvider.icon(fileInfo);
-                result.lineNumber = 0;
-
-                m_manager->reportResult(result);
+                SearchResult result = createSearchResult(fileInfo, 0, QString());
+                qDebug() << "Found 1 result";
+                resultBatch.append(result);
             }
-        } else {
-            // Process file
+        }
+
+        // If entry is a directory, then add to queue
+        if (fileInfo.isDir()) {
+            m_manager->addDirectoryToQueue(fileInfo.absoluteFilePath());
+        // Else entry is a file, then process
+        }
+        else {
+            // Increment Processed file
             processedCount++;
 
-            if (m_options.mode == SearchMode::FileName) {
-                // Search in filename
-                QString fileName = fileInfo.fileName();
-                if (fileName.contains(m_searchText, Qt::CaseInsensitive)) {
-                    SearchResult result;
-                    result.fileName = fileName;
-                    result.fullPath = fileInfo.absoluteFilePath();
-                    result.fileSize = fileInfo.size();
-                    result.fileType = getFileType(fileInfo);
-                    result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
-                    result.isDirectory = false;
-                    result.icon = iconProvider.icon(fileInfo);
-                    result.lineNumber = 0;
-
-                    m_manager->reportResult(result);
-                }
-            } else if (m_options.mode == SearchMode::FileContent) {
+            // If search mode is File Content, then search
+            if (m_options.mode == SearchMode::FileContent) {
                 // Search in file content
-                searchInFile(fileInfo);
+                searchInFile(fileInfo, resultBatch);
             }
 
             // Report progress every 25 files
-            if (processedCount % 25 == 0) {
+            if (processedCount % 100 == 0) {
                 m_manager->incrementCounters(25, 0);
             }
         }
+
+        if (resultBatch.size() >= BATCH_SIZE) {
+            m_manager->reportResults(resultBatch);
+            resultBatch.clear();
+        }
+    }
+
+    // Report remaining results
+    if (resultBatch.length() % BATCH_SIZE != 0)
+    {
+        m_manager->reportResults(resultBatch);
     }
 
     // Report remaining progress
-    if (processedCount % 25 != 0) {
-        m_manager->incrementCounters(processedCount % 25, 1);
+    if (processedCount % 100 != 0) {
+        m_manager->incrementCounters(processedCount % 100, 1);
     }
 
     m_manager->workerFinished();
 }
 
-bool DirectorySearchWorker::searchInFile(const QFileInfo &fileInfo)
+bool DirectorySearchWorker::searchInFile(const QFileInfo &fileInfo, QList<SearchResult> &results)
 {
-    if (fileInfo.size() > m_options.maxFileSizeBytes || !isTextFile(fileInfo)) {
+    if (fileInfo.size() > m_options.maxFileSizeBytes) {
         return false;
     }
 
@@ -110,6 +110,7 @@ bool DirectorySearchWorker::searchInFile(const QFileInfo &fileInfo)
         return false;
     }
 
+    const int BUFFER_SIZE = 16384;  // 16KB buffer
     QTextStream stream(&file);
     stream.setEncoding(QStringConverter::Utf8);
 
@@ -118,48 +119,47 @@ bool DirectorySearchWorker::searchInFile(const QFileInfo &fileInfo)
     int resultsInFile = 0;
     const int MAX_RESULTS_PER_FILE = 3;
 
-    while (!stream.atEnd() && !m_manager->shouldStop() && resultsInFile < MAX_RESULTS_PER_FILE) {
-        QString line = stream.readLine();
-        lineNumber++;
+    QString buffer;
+    buffer.reserve(BUFFER_SIZE * 2);
 
-        if (line.contains(m_searchText, Qt::CaseInsensitive)) {
-            SearchResult result;
-            result.fileName = fileInfo.fileName();
-            result.fullPath = fileInfo.absoluteFilePath();
-            result.fileSize = fileInfo.size();
-            result.fileType = getFileType(fileInfo);
-            result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
-            result.isDirectory = false;
-            result.lineNumber = lineNumber;
-            result.matchedLine = line.trimmed();
+    while (!stream.atEnd() && !m_manager->shouldStop() && resultsInFile < MAX_RESULTS_PER_FILE) {        
+        QString chunk = stream.read(BUFFER_SIZE);
+        buffer += chunk;
 
-            // Truncate very long lines
-            if (result.matchedLine.length() > 150) {
-                int pos = result.matchedLine.indexOf(m_searchText, 0, Qt::CaseInsensitive);
-                if (pos > 50) {
-                    result.matchedLine = "..." + result.matchedLine.mid(pos - 30, 120) + "...";
-                } else {
-                    result.matchedLine = result.matchedLine.left(150) + "...";
+        QStringList lines = buffer.split('\n');
+        buffer = lines.takeLast();
+
+        for (const QString &line : lines) {
+            lineNumber++;
+
+            if (line.contains(m_searchText, Qt::CaseInsensitive)) {
+                QString trimmedLine = line.trimmed();
+
+                if (trimmedLine.length() > 150) {
+                    int searchPos = trimmedLine.indexOf(m_searchText, 0, Qt::CaseInsensitive);
+                    if (searchPos > 50) {
+                        trimmedLine = "..." + trimmedLine.mid(searchPos - 30, 120) + "...";
+                    }
+                    else {
+                        trimmedLine = trimmedLine.left(150) + "...";
+                    }
                 }
+
+                SearchResult result = createSearchResult(fileInfo, lineNumber, trimmedLine);
+                results.append(result);
+                if (results.length() > BATCH_SIZE) {
+                    m_manager->reportResults(results);
+                    results.clear();
+                }
+                foundAny = true;
+                resultsInFile++;
+                if (resultsInFile >= MAX_RESULTS_PER_FILE) break;
             }
-
-            QFileIconProvider iconProvider;
-            result.icon = iconProvider.icon(fileInfo);
-
-            m_manager->reportResult(result);
-            foundAny = true;
-            resultsInFile++;
         }
     }
 
     file.close();
     return foundAny;
-}
-
-bool DirectorySearchWorker::isTextFile(const QFileInfo &fileInfo)
-{
-    QString suffix = fileInfo.suffix().toLower();
-    return m_options.textFileExtensions.contains(suffix) || suffix.isEmpty();
 }
 
 QString DirectorySearchWorker::getFileType(const QFileInfo &fileInfo)
@@ -176,6 +176,46 @@ QString DirectorySearchWorker::getFileType(const QFileInfo &fileInfo)
     }
 }
 
+SearchResult DirectorySearchWorker::createSearchResult(const QFileInfo &fileInfo, int lineNumber, const QString &matchedLine)
+{
+    SearchResult result;
+    result.fileName = fileInfo.fileName();
+    result.fullPath = fileInfo.absoluteFilePath();
+    result.fileSize = fileInfo.size();
+    result.fileType = getFileType(fileInfo);
+    result.lastModified = fileInfo.lastModified().toString("yyyy-MM-dd hh:mm:ss");
+    result.isDirectory = fileInfo.isDir();
+    result.lineNumber = lineNumber;
+    result.matchedLine = matchedLine;
+
+    QFileIconProvider iconProvider;
+    result.icon = iconProvider.icon(fileInfo);
+
+    return result;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Search Manager
 SearchManager::SearchManager(QObject *parent)
     : QObject(parent)
     , m_shouldStop(0)
@@ -205,6 +245,16 @@ SearchManager::SearchManager(QObject *parent)
 SearchManager::~SearchManager()
 {
     stopSearch();
+
+    // Wait for thread pool
+    if (m_threadPool) {
+        m_threadPool->clear();
+        m_threadPool->waitForDone(5000);
+    }
+
+    if (m_progressTimer) {
+        m_progressTimer->stop();
+    }
 }
 
 void SearchManager::startSearch(const QString &searchText, const QString &rootPath, const SearchOptions &options)
@@ -216,6 +266,7 @@ void SearchManager::startSearch(const QString &searchText, const QString &rootPa
         stopSearch();
     }
 
+    // Update info to new search
     m_searchText = searchText;
     m_rootPath = rootPath;
     m_options = options;
@@ -263,12 +314,13 @@ bool SearchManager::isSearching() const
            (m_threadPool && m_threadPool->activeThreadCount() > 0);
 }
 
-void SearchManager::reportResult(const SearchResult &result)
+void SearchManager::reportResults(const QList<SearchResult> &results)
 {
     QMutexLocker locker(&m_resultMutex);
     if (!m_shouldStop.loadAcquire()) {
-        emit resultFound(result);
-        m_resultsFound.fetchAndAddAcquire(1);
+        emit resultsFound(results);
+        int resultsCount = results.length();
+        m_resultsFound.fetchAndAddAcquire(resultsCount);
     }
 }
 
@@ -289,6 +341,7 @@ bool SearchManager::shouldStop() const
 
 void SearchManager::workerFinished()
 {
+    // Decrement active workers
     int remaining = m_activeWorkers.fetchAndSubAcquire(1) - 1;
 
     // Try to start a new worker if there's more work
@@ -337,33 +390,10 @@ void SearchManager::performSearch()
 
 void SearchManager::startInitialSearch()
 {
-    // Add root directory to work queue
-    {
-        QMutexLocker queueLocker(&m_queueMutex);
-        m_workQueue.enqueue(m_rootPath);
-    }
-
     // Start initial workers - they will create more work as they discover subdirectories
-    int initialWorkers = m_threadPool->maxThreadCount();
-
-    for (int i = 0; i < initialWorkers && !m_shouldStop.loadAcquire(); ++i) {
-        QString dirPath;
-        {
-            QMutexLocker queueLocker(&m_queueMutex);
-            if (!m_workQueue.isEmpty()) {
-                dirPath = m_workQueue.dequeue();
-            }
-        }
-
-        if (!dirPath.isEmpty()) {
-            DirectorySearchWorker *worker = new DirectorySearchWorker(
-                dirPath, m_searchText, m_options, this);
-            m_activeWorkers.fetchAndAddAcquire(1);
-            m_threadPool->start(worker);
-        }
-    }
-
-    qDebug() << "Started initial search with" << initialWorkers << "workers";
+    DirectorySearchWorker *initialWorker = new DirectorySearchWorker(m_rootPath, m_searchText, m_options, this);
+    m_activeWorkers.fetchAndAddAcquire(1);
+    m_threadPool->start(initialWorker);
 }
 
 void SearchManager::addDirectoryToQueue(const QString &dirPath)
